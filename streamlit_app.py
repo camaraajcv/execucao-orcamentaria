@@ -1,35 +1,24 @@
 import streamlit as st
 import requests
 
-st.title("Diagnóstico Portal da Transparência (A)")
+st.title("Diagnóstico Portal da Transparência (B)")
 
 token = st.secrets.get("PORTAL_TRANSPARENCIA_TOKEN", "").strip()
-st.write("Token configurado?", "SIM" if token else "NÃO", "| len:", len(token))
 
-def call(endpoint, params=None, header_name="chave-api-dados"):
+def call(endpoint, header_name):
     url = f"https://api.portaldatransparencia.gov.br/api-de-dados/{endpoint}"
     headers = {
         header_name: token,
         "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (StreamlitCloud diagnostic)",
+        "User-Agent": "Mozilla/5.0",
     }
-    r = requests.get(url, headers=headers, params=params or {}, timeout=30)
-    st.subheader(endpoint)
-    st.write("Status:", r.status_code)
+    r = requests.get(url, headers=headers, timeout=30)
+    st.write(f"Endpoint: {endpoint} | Header: {header_name} | Status: {r.status_code}")
     st.write("URL:", r.url)
-    st.code(r.text[:800] or "<corpo vazio>")
+    st.code(r.text[:300] or "<corpo vazio>")
 
-call("orgaos-superiores")  # endpoint leve, normalmente responde
-call(
-    "despesa-empenho",
-    {
-        "codigoUGExecutora": "120052",
-        "dataInicio": "2026-01-01",
-        "dataFim": "2026-01-10",
-        "pagina": 1,
-        "tamanhoPagina": 1,
-    },
-)
+for h in ["chave-api-dados", "chave-api"]:
+    call("orgaos-superiores", h)
 
 st.stop()
 

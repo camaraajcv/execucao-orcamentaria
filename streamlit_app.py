@@ -415,6 +415,14 @@ def build_agg(dim_col: str) -> pd.DataFrame:
 
 def y_max_from_agg(agg: pd.DataFrame) -> float:
     return float(max(agg["atualizado"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
+def pretty_agg_table(agg: pd.DataFrame) -> pd.DataFrame:
+    return agg.rename(columns={
+        "dim": "Dimensão",
+        "atualizado": "LOA (R$)",
+        "empenhado": "Orçamento Empenhado (R$)",
+        "realizado": "Orçamento Realizado (R$)",
+        "pct": "% Realizado (médio)",
+    })
 
 # ==========================
 # TABS
@@ -449,7 +457,8 @@ with tab2:
         agg_acao = build_agg(COL_ACAO_COD)
         y_max = y_max_from_agg(agg_acao)
         st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(agg_acao, use_container_width=True, hide_index=True)
+        st.dataframe(pretty_agg_table(agg_acao), use_container_width=True, hide_index=True)
+
 
 with tab3:
     st.subheader("Por Grupo de Despesa")

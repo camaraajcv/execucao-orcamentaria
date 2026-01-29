@@ -161,14 +161,15 @@ def fmt_mi_bi(v: float) -> str:
     if abs_v >= 1_000:
         return f"R$ {v/1_000:.2f} mil".replace(".", ",")
     return fmt_brl(v)
-def moeda_br(valor):
+def fmt_moeda_br(valor):
+    if valor is None:
+        return "R$ 0,00"
     return (
-        f"{valor:,.2f}"
+        f"R$ {valor:,.2f}"
         .replace(",", "X")
         .replace(".", ",")
         .replace("X", ".")
     )
-
 
 # ==========================
 # FORMATAÇÃO (tabelas)
@@ -413,27 +414,26 @@ dfm["_realizado"]  = parse_brl_number_series(dfm[COL_REALIZADO]).fillna(0)
 dfm["_pct"]        = parse_percent_series(dfm[COL_PCT]).fillna(0)
 
 # KPIs
-total_atualizado = dfm["Orçamento Atualizado (R$)"].sum()
-total_empenhado = dfm["Orçamento Empenhado (R$)"].sum()
-total_realizado = dfm["Orçamento Realizado (R$)"].sum()
-
+total_at = float(dfm["_atualizado"].sum())
+total_em = float(dfm["_empenhado"].sum())
+total_re = float(dfm["_realizado"].sum())
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
 st.markdown(f"""
 <div class="kpi-grid">
   <div class="kpi loa">
     <div class="label">LOA (R$)</div>
-    <div class="value">R$ {moeda_br(total_atualizado)}</div>
+    <div class="value">{fmt_mi_bi(total_at)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi emp">
     <div class="label">Empenhado (R$)</div>
-    <div class="value">R$ {moeda_br(total_empenhado)}</div>
+    <div class="value">{fmt_mi_bi(total_em)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi real">
     <div class="label">Realizado (R$)</div>
-    <div class="value">R$ {moeda_br(total_realizado)}</div>
+    <div class="value">{fmt_mi_bi(total_re)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi pct">

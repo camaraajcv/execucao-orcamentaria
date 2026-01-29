@@ -329,7 +329,7 @@ with st.sidebar:
         default=metric_options,
     )
 
-    show_pct_line = st.checkbox("Mostrar linha de % Realizado", value=True)
+    show_pct_line = st.checkbox("Mostrar % Realizado", value=False)
 
     if not selected_metrics:
         st.warning("Selecione pelo menos 1 métrica.")
@@ -366,6 +366,7 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
     if not show_pct:
         return bars.properties(height=380)
 
+    # ✅ só pontos (sem linha), bem mais limpo
     points = alt.Chart(agg).mark_point(filled=True, size=60).encode(
         x=alt.X("dim:N", title=dim_label, sort="-y"),
         y=alt.Y("pct:Q", title="% Realizado (0–100)", scale=alt.Scale(domain=[0, 100])),
@@ -375,8 +376,8 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
         ],
     )
 
-
     return alt.layer(bars, points).resolve_scale(y="independent").properties(height=380)
+
 
 # ==========================
 # AGREGAÇÃO

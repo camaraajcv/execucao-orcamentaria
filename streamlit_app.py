@@ -413,26 +413,27 @@ dfm["_realizado"]  = parse_brl_number_series(dfm[COL_REALIZADO]).fillna(0)
 dfm["_pct"]        = parse_percent_series(dfm[COL_PCT]).fillna(0)
 
 # KPIs
-total_at = float(dfm["_atualizado"].sum())
-total_em = float(dfm["_empenhado"].sum())
-total_re = float(dfm["_realizado"].sum())
+total_atualizado = df_filtrado["Orçamento Atualizado (R$)"].sum()
+total_empenhado = df_filtrado["Orçamento Empenhado (R$)"].sum()
+total_realizado = df_filtrado["Orçamento Realizado (R$)"].sum()
+
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
 st.markdown(f"""
 <div class="kpi-grid">
   <div class="kpi loa">
     <div class="label">LOA (R$)</div>
-    <div class="value">R$ {moeda_br(total_loa)}</div>
+    <div class="value">R$ {moeda_br(total_atualizado)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi emp">
     <div class="label">Empenhado (R$)</div>
-    <div class="value">R$ {moeda_br(total_loa)}</div>
+    <div class="value">R$ {moeda_br(total_empenhado)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi real">
     <div class="label">Realizado (R$)</div>
-    <div class="value">R$ {moeda_br(total_loa)}</div>
+    <div class="value">R$ {moeda_br(total_realizado)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi pct">

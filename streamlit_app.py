@@ -269,8 +269,7 @@ with st.sidebar:
 
     st.caption("Fonte:")
     st.write(fonte_url)
-    st.caption("CSV esperado no ZIP:")
-    st.code(csv_name_expected)
+   
 
     c1, c2 = st.columns(2)
     with c1:

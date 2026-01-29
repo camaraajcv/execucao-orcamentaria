@@ -447,7 +447,18 @@ with tab1:
     y_max = y_max_from_agg(agg_any)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
-    st.dataframe(agg_any, use_container_width=True, hide_index=True)
+    st.dataframe(
+        agg_acao.rename(columns={
+            "dim": "Dimensão",
+            "atualizado": "LOA (R$)",
+            "empenhado": "Orçamento Empenhado (R$)",
+            "realizado": "Orçamento Realizado (R$)",
+            "pct": "% Realizado (médio)",
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")

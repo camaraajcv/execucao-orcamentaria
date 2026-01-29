@@ -208,30 +208,23 @@ if "csv_name_used" not in st.session_state:
 # ==========================
 # TÍTULO
 # ==========================
-st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
-st.caption("Dashboard interativo (download de dados → filtros → gráficos comparáveis com escala fixa).")
 if st.session_state.csv_updated_at is not None:
     csv_dt = st.session_state.csv_updated_at
 
     # garante timezone
-    if csv_dt.tzinfo is None:
+    if getattr(csv_dt, "tzinfo", None) is None:
         csv_dt = csv_dt.tz_localize("UTC")
 
     csv_dt = csv_dt.tz_convert("America/Sao_Paulo")
 
-    st.caption(
-        f"📅 Dados atualizados em: **{csv_dt.strftime('%d/%m/%Y às %H:%M')}** "
-        "(horário de Brasília)"
+    st.markdown(
+        f"""
+        <div style="color:gray;font-size:0.9em; margin-top:-8px;">
+        📅 Dados atualizados em: <b>{csv_dt.strftime('%d/%m/%Y às %H:%M')}</b> (horário de Brasília)
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-
-st.markdown(
-    f"""
-    <div style="color:gray;font-size:0.9em">
-    📅 Dados atualizados em: <b>{dt.strftime('%d/%m/%Y às %H:%M')}</b> (horário de Brasília)
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 # ==========================
 # SIDEBAR (carregamento + filtros)

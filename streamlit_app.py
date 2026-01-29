@@ -210,7 +210,7 @@ df = st.session_state.df
 # ==========================
 # DETECÇÃO DE COLUNAS IMPORTANTES (métricas)
 # ==========================
-COL_LOA = find_col(df, "orçamento LOA")
+COL_ATUALIZADO = find_col(df, "orçamento atualizado")
 COL_EMPENHADO  = find_col(df, "orçamento empenhado")
 COL_REALIZADO  = find_col(df, "orçamento realizado")
 COL_PCT        = find_col(df, "% realizado")
@@ -264,7 +264,7 @@ df_f = filtrar_df(df, filtros)
 # VALIDA MÉTRICAS
 # ==========================
 missing = [name for name, col in [
-    ("ORÇAMENTO LOA (R$)", COL_LOA),
+    ("ORÇAMENTO ATUALIZADO (R$)", COL_ATUALIZADO),
     ("ORÇAMENTO EMPENHADO (R$)", COL_EMPENHADO),
     ("ORÇAMENTO REALIZADO (R$)", COL_REALIZADO),
     ("% REALIZADO DO ORÇAMENTO", COL_PCT),
@@ -282,19 +282,19 @@ if missing:
 # PREPARA DF DE MÉTRICAS NUMÉRICAS
 # ==========================
 dfm = df_f.copy()
-dfm["_LOA"] = parse_brl_number_series(dfm[COL_LOA]).fillna(0)
+dfm["_atualizado"] = parse_brl_number_series(dfm[COL_ATUALIZADO]).fillna(0)
 dfm["_empenhado"]  = parse_brl_number_series(dfm[COL_EMPENHADO]).fillna(0)
 dfm["_realizado"]  = parse_brl_number_series(dfm[COL_REALIZADO]).fillna(0)
 dfm["_pct"]        = parse_percent_series(dfm[COL_PCT]).fillna(0)
 
 # KPIs
-total_at = float(dfm["_LOA"].sum())
+total_at = float(dfm["_atualizado"].sum())
 total_em = float(dfm["_empenhado"].sum())
 total_re = float(dfm["_realizado"].sum())
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Orçamento LOA (R$)", f"{total_at:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+k1.metric("Orçamento Atualizado (R$)", f"{total_at:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k2.metric("Orçamento Empenhado (R$)",  f"{total_em:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k3.metric("Orçamento Realizado (R$)",  f"{total_re:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%")
@@ -313,12 +313,12 @@ with st.sidebar:
     st.subheader("Métricas no gráfico")
 
     metric_options = [
-        "Orçamento LOA (R$)",
+        "Orçamento Atualizado (R$)",
         "Orçamento Empenhado (R$)",
         "Orçamento Realizado (R$)",
     ]
     metric_map = {
-        "Orçamento LOA (R$)": "LOA",
+        "Orçamento Atualizado (R$)": "atualizado",
         "Orçamento Empenhado (R$)": "empenhado",
         "Orçamento Realizado (R$)": "realizado",
     }
@@ -384,13 +384,13 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
 # ==========================
 def build_agg(dim_col: str) -> pd.DataFrame:
     tmp = dfm[[dim_col]].copy()
-    tmp["LOA"] = dfm["_LOA"]
+    tmp["atualizado"] = dfm["_atualizado"]
     tmp["empenhado"]  = dfm["_empenhado"]
     tmp["realizado"]  = dfm["_realizado"]
     tmp["pct"]        = dfm["_pct"]
 
     agg = tmp.groupby(dim_col, dropna=False).agg(
-        LOA=("LOA", "sum"),
+        atualizado=("atualizado", "sum"),
         empenhado=("empenhado", "sum"),
         realizado=("realizado", "sum"),
         pct=("pct", "mean"),
@@ -406,7 +406,7 @@ def build_agg(dim_col: str) -> pd.DataFrame:
     return agg
 
 def y_max_from_agg(agg: pd.DataFrame) -> float:
-    return float(max(agg["LOA"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
+    return float(max(agg["atualizado"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
 
 # ==========================
 # TABS
@@ -422,7 +422,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 
 with tab1:
     st.subheader("Visão Geral")
-    dim_all = [c for c in df.columns if c not in [COL_LOA, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
+    dim_all = [c for c in df.columns if c not in [COL_ATUALIZADO, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
     default_idx = dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0
 
     dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)

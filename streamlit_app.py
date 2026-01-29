@@ -441,11 +441,8 @@ st.markdown(f"""
 # CONTROLES DE VISUALIZAÇÃO
 # ==========================
 with st.sidebar:
-    st.divider()
-    st.header("3) Visualização")
-
-    mostrar_tudo = st.checkbox("Mostrar todas as categorias (pode pesar)", value=False)
-    limite_n = st.number_input("Se não mostrar tudo, limitar para N", min_value=5, max_value=2000, value=50, step=5)
+    mostrar_tudo = True
+    limite_n = 10_000_000  # qualquer número alto
 
     st.divider()
     st.subheader("Métricas no gráfico")

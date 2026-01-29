@@ -4,6 +4,21 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 import time
 import io
+import streamlit as st
+import requests
+
+st.write("VERSAO: TESTE dataEmissao + fase=1")
+
+BASE = "https://api.portaldatransparencia.gov.br/api-de-dados/despesas/documentos"
+headers = {"chave-api-dados": st.secrets["PORTAL_TRANSPARENCIA_TOKEN"]}
+
+params = {"dataEmissao": "2026-01-01", "fase": 1, "pagina": 1, "tamanhoPagina": 1}
+r = requests.get(BASE, headers=headers, params=params, timeout=30)
+
+st.write("URL FINAL:", r.url)
+st.write("STATUS:", r.status_code)
+st.write("TEXTO:", (r.text or "")[:500])
+st.stop()
 
 # =========================
 # CONFIG

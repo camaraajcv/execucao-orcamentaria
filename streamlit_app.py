@@ -119,6 +119,57 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     return out.getvalue()
 
 # ==========================
+# FORMATAÇÃO (tabelas)
+# ==========================
+def fmt_brl(x):
+    """Formata número como moeda BR (R$ 1.234.567,89)."""
+    try:
+        v = float(x)
+    except Exception:
+        return x
+    s = f"{v:,.2f}"                  # 1,234,567.89
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+def pretty_agg_styler(agg: pd.DataFrame):
+    """
+    1) Renomeia colunas para rótulos amigáveis (inclui LOA)
+    2) Formata colunas numéricas como moeda
+    """
+    df_show = agg.copy()
+
+    # rename robusto (case-insensitive)
+    rename_map = {}
+    for c in df_show.columns:
+        lc = str(c).strip().lower()
+        if lc == "dim":
+            rename_map[c] = "Dimensão"
+        elif lc == "atualizado":
+            rename_map[c] = "LOA (R$)"
+        elif lc == "empenhado":
+            rename_map[c] = "Orçamento Empenhado (R$)"
+        elif lc == "realizado":
+            rename_map[c] = "Orçamento Realizado (R$)"
+        elif lc == "pct":
+            rename_map[c] = "% Realizado (médio)"
+    df_show = df_show.rename(columns=rename_map)
+
+    money_cols = [c for c in df_show.columns if c in [
+        "LOA (R$)",
+        "Orçamento Empenhado (R$)",
+        "Orçamento Realizado (R$)",
+    ]]
+
+    styler = df_show.style
+    if money_cols:
+        styler = styler.format({c: fmt_brl for c in money_cols})
+
+    if "% Realizado (médio)" in df_show.columns:
+        styler = styler.format({"% Realizado (médio)": "{:.2f}"})
+
+    return styler
+
+# ==========================
 # STATE
 # ==========================
 if "df" not in st.session_state:
@@ -216,7 +267,7 @@ COL_REALIZADO  = find_col(df, "orçamento realizado")
 COL_PCT        = find_col(df, "% realizado")
 
 # ==========================
-# DETECÇÃO DE DIMENSÕES PEDIDAS (para abas)
+# DETECÇÃO DE DIMENSÕES (abas)
 # ==========================
 COL_ACAO_COD   = find_col(df, "código ação") or find_col(df, "codigo ação")
 COL_GND_NOME   = find_col(df, "nome grupo de despesa") or find_col(df, "grupo de despesa")
@@ -294,7 +345,7 @@ total_re = float(dfm["_realizado"].sum())
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Orçamento Atualizado (R$)", f"{total_at:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+k1.metric("LOA (R$)", f"{total_at:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k2.metric("Orçamento Empenhado (R$)",  f"{total_em:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k3.metric("Orçamento Realizado (R$)",  f"{total_re:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%")
@@ -313,12 +364,12 @@ with st.sidebar:
     st.subheader("Métricas no gráfico")
 
     metric_options = [
-        "Orçamento Atualizado (R$)",
+        "LOA (R$)",
         "Orçamento Empenhado (R$)",
         "Orçamento Realizado (R$)",
     ]
     metric_map = {
-        "Orçamento Atualizado (R$)": "atualizado",
+        "LOA (R$)": "atualizado",
         "Orçamento Empenhado (R$)": "empenhado",
         "Orçamento Realizado (R$)": "realizado",
     }
@@ -329,6 +380,7 @@ with st.sidebar:
         default=metric_options,
     )
 
+    # Opção 2: % desligado por padrão (você disse que ficou melhor)
     show_pct_line = st.checkbox("Mostrar % Realizado", value=False)
 
     if not selected_metrics:
@@ -338,22 +390,22 @@ with st.sidebar:
 metric_keys = [metric_map[m] for m in selected_metrics]
 
 # ==========================
-# GRÁFICO ALTair (profissional)
+# GRÁFICO Altair
 # ==========================
 def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float, metric_keys: list[str], show_pct: bool):
-    legend_names = {
-        "atualizado": "LOA",
-        "empenhado": "Empenhado",
-        "realizado": "Realizado",
-    }
-
     bars_long = agg.melt(
-        
         id_vars=["dim"],
         value_vars=metric_keys,
         var_name="métrica",
         value_name="valor",
     )
+
+    # legenda amigável
+    legend_names = {
+        "atualizado": "LOA",
+        "empenhado": "Empenhado",
+        "realizado": "Realizado",
+    }
     bars_long["métrica"] = bars_long["métrica"].map(legend_names).fillna(bars_long["métrica"])
 
     base = alt.Chart(bars_long).encode(
@@ -374,7 +426,7 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
     if not show_pct:
         return bars.properties(height=380)
 
-    # ✅ só pontos (sem linha), bem mais limpo
+    # Se ativar o %: pontos apenas (sem linhas), para não poluir
     points = alt.Chart(agg).mark_point(filled=True, size=60).encode(
         x=alt.X("dim:N", title=dim_label, sort="-y"),
         y=alt.Y("pct:Q", title="% Realizado (0–100)", scale=alt.Scale(domain=[0, 100])),
@@ -385,7 +437,6 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
     )
 
     return alt.layer(bars, points).resolve_scale(y="independent").properties(height=380)
-
 
 # ==========================
 # AGREGAÇÃO
@@ -415,14 +466,6 @@ def build_agg(dim_col: str) -> pd.DataFrame:
 
 def y_max_from_agg(agg: pd.DataFrame) -> float:
     return float(max(agg["atualizado"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
-def pretty_agg_table(agg: pd.DataFrame) -> pd.DataFrame:
-    return agg.rename(columns={
-        "dim": "Dimensão",
-        "atualizado": "LOA (R$)",
-        "empenhado": "Orçamento Empenhado (R$)",
-        "realizado": "Orçamento Realizado (R$)",
-        "pct": "% Realizado (médio)",
-    })
 
 # ==========================
 # TABS
@@ -438,16 +481,16 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 
 with tab1:
     st.subheader("Visão Geral")
+
     dim_all = [c for c in df.columns if c not in [COL_ATUALIZADO, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
     default_idx = dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0
-
     dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)
 
     agg_any = build_agg(dim_choice)
     y_max = y_max_from_agg(agg_any)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
-    st.dataframe(agg_any, use_container_width=True, hide_index=True)
+    st.dataframe(pretty_agg_styler(agg_any), use_container_width=True)
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")
@@ -457,8 +500,7 @@ with tab2:
         agg_acao = build_agg(COL_ACAO_COD)
         y_max = y_max_from_agg(agg_acao)
         st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(pretty_agg_table(agg_acao), use_container_width=True, hide_index=True)
-
+        st.dataframe(pretty_agg_styler(agg_acao), use_container_width=True)
 
 with tab3:
     st.subheader("Por Grupo de Despesa")
@@ -468,7 +510,7 @@ with tab3:
         agg_gnd = build_agg(COL_GND_NOME)
         y_max = y_max_from_agg(agg_gnd)
         st.altair_chart(chart_budget_and_pct(agg_gnd, "Grupo de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(agg_gnd, use_container_width=True, hide_index=True)
+        st.dataframe(pretty_agg_styler(agg_gnd), use_container_width=True)
 
 with tab4:
     st.subheader("Por Elemento de Despesa")
@@ -478,7 +520,7 @@ with tab4:
         agg_elem = build_agg(COL_ELEM_NOME)
         y_max = y_max_from_agg(agg_elem)
         st.altair_chart(chart_budget_and_pct(agg_elem, "Elemento de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(agg_elem, use_container_width=True, hide_index=True)
+        st.dataframe(pretty_agg_styler(agg_elem), use_container_width=True)
 
 with tab5:
     st.subheader("Por Função")
@@ -488,7 +530,7 @@ with tab5:
         agg_func = build_agg(COL_FUNCAO_NOME)
         y_max = y_max_from_agg(agg_func)
         st.altair_chart(chart_budget_and_pct(agg_func, "Função", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(agg_func, use_container_width=True, hide_index=True)
+        st.dataframe(pretty_agg_styler(agg_func), use_container_width=True)
 
 with tab6:
     st.subheader("Tabela (dados filtrados) & Exportação")

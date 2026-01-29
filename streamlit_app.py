@@ -3,6 +3,7 @@ import requests
 import zipfile
 import io
 import pandas as pd
+
 from datetime import date
 
 # ==========================
@@ -11,7 +12,7 @@ from datetime import date
 st.set_page_config(page_title="Orçamento/Despesa — Download de Dados", layout="wide")
 
 BASE_PAGE = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa"
-DEFAULT_YEAR = 2026  # você pode trocar para date.today().year se quiser
+DEFAULT_YEAR = 2026  # ajuste se quiser (ex.: date.today().year)
 
 # ==========================
 # FUNÇÕES
@@ -74,17 +75,16 @@ def filtrar_df(df: pd.DataFrame, filtros: dict) -> pd.DataFrame:
             out = out[out[col].astype(str).isin([str(v) for v in vals])]
     return out
 
-def detectar_col_valor(df: pd.DataFrame) -> str | None:
-    candidatos = [
-        "Orçamento Empenhado (R$)",
-        "Orçamento Realizado (R$)",
-        "Orçamento Atualizado (R$)",
-        "Orçamento Inicial (R$)",
-    ]
-    for c in candidatos:
-        if c in df.columns:
-            return c
-    return None
+def detectar_colunas_orcamento(df: pd.DataFrame) -> list[str]:
+    """
+    Detecta todas as colunas cujo nome começa com 'Orçamento' (ignorando espaços).
+    """
+    cols = []
+    for c in df.columns:
+        c_strip = str(c).strip()
+        if c_strip.lower().startswith("orçamento"):
+            cols.append(c)
+    return cols
 
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
     out = io.BytesIO()
@@ -115,7 +115,6 @@ st.caption("Sem API: o app baixa o ZIP do Portal, extrai o CSV do ano e permite 
 with st.sidebar:
     st.header("Ano e carga dos dados")
 
-    # Mantém o ano “lembrado” na UI
     ano = st.number_input(
         "Ano",
         min_value=2011,
@@ -149,7 +148,6 @@ if limpar:
     st.session_state.csv_name_used = None
     st.rerun()
 
-# Carrega se clicou OU se ainda não tem df (primeira vez) — opcional
 if carregar:
     try:
         with st.spinner("Baixando ZIP do Portal…"):
@@ -177,7 +175,6 @@ if carregar:
         st.error("Erro ao carregar dados.")
         st.exception(e)
 
-# Se ainda não carregou nada, não trava a UI — só orienta
 if st.session_state.df is None:
     st.info("Escolha o ano e clique em **Carregar**.")
     st.stop()
@@ -197,7 +194,6 @@ st.subheader("🎛 Filtros dinâmicos")
 
 cols = list(df.columns)
 
-# Sugestão de colunas comuns (se existirem)
 suggest = [c for c in [
     "Código Unidade Orçamentária  ",
     "Nome Unidade Orçamentária  ",
@@ -219,7 +215,6 @@ for c in filter_cols:
     uniques = df[c].astype(str).fillna("").unique().tolist()
     uniques = [u for u in uniques if u != ""]
 
-    # evita travar UI com milhões de valores
     if len(uniques) > 3000:
         st.warning(f"Coluna '{c}' tem muitos valores ({len(uniques)}). Selecione outra coluna para filtro.")
         continue
@@ -236,28 +231,47 @@ st.write(f"Linhas após filtros: **{len(df_f):,}**".replace(",", "."))
 # ==========================
 st.subheader("📊 Gráfico por agrupamento")
 
-col_val = detectar_col_valor(df_f)
+orc_cols = detectar_colunas_orcamento(df_f)
 
-group_options = [c for c in [
-    "Código Ação", "Nome Ação",
-    "Código Unidade Orçamentária  ", "Nome Unidade Orçamentária  ",
-    "Nome Órgão Superior", "Nome Órgão Subordinado",
-    "Nome Função", "Nome Subfunção",
-    "Nome Grupo de Despesa", "Nome Elemento de Despesa"
-] if c in df_f.columns]
+if not orc_cols:
+    st.warning("Não encontrei nenhuma coluna que comece com 'Orçamento'. Confira os nomes das colunas no DataFrame.")
+else:
+    col_val = st.selectbox(
+        "Qual coluna de valor (Orçamento) você quer somar?",
+        options=orc_cols,
+        index=0,
+        key="col_val"
+    )
 
-if not group_options:
-    group_options = list(df_f.columns)[:1]
+    group_options = [c for c in [
+        "Código Ação", "Nome Ação",
+        "Código Unidade Orçamentária  ", "Nome Unidade Orçamentária  ",
+        "Nome Órgão Superior", "Nome Órgão Subordinado",
+        "Nome Função", "Nome Subfunção",
+        "Nome Grupo de Despesa", "Nome Elemento de Despesa"
+    ] if c in df_f.columns]
 
-group_col = st.selectbox("Agrupar por", options=group_options, key="group_col")
+    if not group_options:
+        group_options = list(df_f.columns)[:1]
 
-if col_val and group_col in df_f.columns:
-    # converte o valor para número (tolerante a formatação BR)
-    s = df_f[col_val].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    group_col = st.selectbox("Agrupar por", options=group_options, key="group_col")
+
+    # converte BR -> número (tolerante)
+    s = (
+        df_f[col_val]
+        .astype(str)
+        .str.replace("\xa0", "", regex=False)   # remove NBSP
+        .str.replace("R$", "", regex=False)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.strip()
+    )
+
     df_plot = df_f.copy()
     df_plot["_valor_num"] = pd.to_numeric(s, errors="coerce").fillna(0)
 
     top_n = st.slider("Top N", 5, 50, 15, key="top_n")
+
     agg = (
         df_plot.groupby(group_col, dropna=False)["_valor_num"]
         .sum()
@@ -265,10 +279,9 @@ if col_val and group_col in df_f.columns:
         .sort_values("_valor_num", ascending=False)
         .head(top_n)
     )
+
     st.bar_chart(agg.set_index(group_col)["_valor_num"])
     st.dataframe(agg, use_container_width=True, hide_index=True)
-else:
-    st.info("Não encontrei coluna de valor padrão para somar. Você ainda pode explorar a tabela abaixo.")
 
 # ==========================
 # TABELA + DOWNLOAD

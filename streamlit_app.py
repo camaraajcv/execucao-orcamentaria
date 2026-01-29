@@ -209,7 +209,7 @@ if "csv_name_used" not in st.session_state:
 # TÍTULO
 # ==========================
 st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
-st.caption("Dashboard interativo (download de dados → filtros → gráficos comparáveis com escala fixa).")
+st.caption("Dashboard interativo (FAÇA SEU FILTRO NO MENU LATERAL - CLICAR NAS SETINHAS).")
 if st.session_state.csv_updated_at is not None:
     csv_dt = st.session_state.csv_updated_at
 

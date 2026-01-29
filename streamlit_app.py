@@ -134,7 +134,8 @@ def fmt_brl(x):
 def pretty_agg_styler(agg: pd.DataFrame):
     """
     1) Renomeia colunas para rótulos amigáveis (inclui LOA)
-    2) Formata colunas numéricas como moeda
+    2) Força colunas de valores para numérico
+    3) Formata como moeda BR
     """
     df_show = agg.copy()
 
@@ -154,12 +155,20 @@ def pretty_agg_styler(agg: pd.DataFrame):
             rename_map[c] = "% Realizado (médio)"
     df_show = df_show.rename(columns=rename_map)
 
-    money_cols = [c for c in df_show.columns if c in [
+    money_cols = [c for c in [
         "LOA (R$)",
         "Orçamento Empenhado (R$)",
         "Orçamento Realizado (R$)",
-    ]]
+    ] if c in df_show.columns]
 
+    # ✅ garante numérico (evita aparecer 545914651.000000)
+    for c in money_cols:
+        df_show[c] = pd.to_numeric(df_show[c], errors="coerce").fillna(0.0)
+
+    if "% Realizado (médio)" in df_show.columns:
+        df_show["% Realizado (médio)"] = pd.to_numeric(df_show["% Realizado (médio)"], errors="coerce")
+
+    # aplica formatação
     styler = df_show.style
     if money_cols:
         styler = styler.format({c: fmt_brl for c in money_cols})

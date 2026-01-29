@@ -161,6 +161,15 @@ def fmt_mi_bi(v: float) -> str:
     if abs_v >= 1_000:
         return f"R$ {v/1_000:.2f} mil".replace(".", ",")
     return fmt_brl(v)
+def fmt_moeda_br(valor):
+    if valor is None:
+        return "R$ 0,00"
+    return (
+        f"R$ {valor:,.2f}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
 # ==========================
 # FORMATAÇÃO (tabelas)
@@ -233,7 +242,7 @@ if "csv_name_used" not in st.session_state:
 # TÍTULO
 # ==========================
 st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
-st.caption("Dashboard interativo (FAÇA SEU FILTRO NO MENU LATERAL - CLICAR NAS SETINHAS).")
+st.caption("Dashboard interativo (FAÇA SEU FILTRO NO MENU LATERAL - CLICAR NAS SETINHAS NA LATERAL SUPERIOR ESQUERDA).")
 if st.session_state.csv_updated_at is not None:
     csv_dt = st.session_state.csv_updated_at
 

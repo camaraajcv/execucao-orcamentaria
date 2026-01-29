@@ -1,302 +1,185 @@
 import streamlit as st
 import requests
-import pandas as pd
-import time
-import random
+import zipfile
 import io
+import pandas as pd
+from datetime import date
 
-from datetime import date, timedelta
-from requests.exceptions import ReadTimeout, ConnectTimeout, ConnectionError, HTTPError
+# ==========================
+# CONFIG
+# ==========================
+st.set_page_config(page_title="Orçamento/Despesa 2026 — UO 52111 e 52911", layout="wide")
 
-# ======================================================
-# CONFIGURAÇÃO GERAL
-# ======================================================
-st.set_page_config(
-    page_title="Empenhos – UG 120052",
-    layout="wide"
-)
+FONTE_URL = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa/2026"
+UOS_ALVO = {"52111", "52911"}  # manter como string pra bater com qualquer formatação
 
-BASE_URL = "https://api.portaldatransparencia.gov.br/api-de-dados"
-ENDPOINT = "despesas/documentos"
+# Coluna chave (como você descreveu)
+COL_UO = "Código Unidade Orçamentária"
 
-UG_PADRAO = "120052"
-GESTAO_PADRAO = "0001"
-FASE_EMPENHO = 1
+# ==========================
+# FUNÇÕES
+# ==========================
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)  # cache 24h
+def baixar_zip(url: str) -> bytes:
+    """
+    Baixa o ZIP do Portal (ou o arquivo que o link devolver).
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (StreamlitCloud)",
+        "Accept": "*/*",
+        "Referer": "https://portaldatransparencia.gov.br/",
+    }
+    r = requests.get(url, headers=headers, timeout=180)
+    r.raise_for_status()
+    return r.content
 
-DEFAULT_TIMEOUT = 120  # segundos
+def achar_primeiro_csv_no_zip(zip_bytes: bytes) -> str:
+    """
+    Retorna o nome do primeiro arquivo .csv dentro do zip.
+    """
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        nomes = z.namelist()
+        csvs = [n for n in nomes if n.lower().endswith(".csv")]
+        if not csvs:
+            raise RuntimeError(f"Não encontrei nenhum CSV dentro do ZIP. Arquivos: {nomes[:20]}")
+        return csvs[0]
 
-# ======================================================
-# SECRETS
-# ======================================================
-if "PORTAL_TRANSPARENCIA_TOKEN" not in st.secrets:
-    st.error("❌ Configure PORTAL_TRANSPARENCIA_TOKEN em Settings → Secrets")
-    st.stop()
+def ler_csv_filtrado_do_zip(zip_bytes: bytes, member_csv: str, uos_alvo: set[str], chunksize: int = 200_000) -> pd.DataFrame:
+    """
+    Lê o CSV dentro do ZIP em chunks e filtra pelas UOs alvo.
+    """
+    # Tentativas de encoding e separador comuns em dados do governo
+    encodings = ["utf-8-sig", "latin-1"]
+    seps = [";", ","]
 
-TOKEN = str(st.secrets["PORTAL_TRANSPARENCIA_TOKEN"]).strip()
-HEADER_NAME = str(
-    st.secrets.get("PORTAL_TRANSPARENCIA_HEADER", "chave-api-dados")
-).strip()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        with z.open(member_csv) as f:
+            raw = f.read()  # lê pra memória (se o CSV for gigante e estourar, eu te passo versão streaming)
+            bio = io.BytesIO(raw)
 
-HEADERS = {
-    HEADER_NAME: TOKEN,
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (StreamlitCloud)",
-    "Referer": "https://www.portaldatransparencia.gov.br/",
-}
-
-# ======================================================
-# FUNÇÕES DE REDE (ROBUSTAS)
-# ======================================================
-def request_with_retry(url, params, max_retries=6, base_sleep=1.0):
     last_err = None
+    for enc in encodings:
+        for sep in seps:
+            try:
+                # Reinicia o buffer a cada tentativa
+                bio.seek(0)
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            r = requests.get(
-                url,
-                headers=HEADERS,
-                params=params,
-                timeout=DEFAULT_TIMEOUT
-            )
+                # Leitura em chunks para filtrar sem carregar tudo
+                it = pd.read_csv(
+                    bio,
+                    sep=sep,
+                    encoding=enc,
+                    dtype=str,
+                    chunksize=chunksize,
+                    low_memory=False
+                )
 
-            if r.status_code in (429, 500, 502, 503, 504):
-                raise HTTPError(f"HTTP {r.status_code}", response=r)
+                partes = []
+                for chunk in it:
+                    if COL_UO not in chunk.columns:
+                        raise RuntimeError(
+                            f"Coluna '{COL_UO}' não encontrada. Colunas disponíveis: {list(chunk.columns)[:40]}"
+                        )
+                    # Normaliza UO como string sem espaços
+                    uo = chunk[COL_UO].astype(str).str.strip()
+                    partes.append(chunk[uo.isin(uos_alvo)])
 
-            r.raise_for_status()
-            return r
+                df = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame()
+                return df
 
-        except (ReadTimeout, ConnectTimeout, ConnectionError, HTTPError) as e:
-            last_err = e
-            sleep_s = base_sleep * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
-            time.sleep(min(sleep_s, 12))
+            except Exception as e:
+                last_err = e
 
-    raise RuntimeError(f"Falha após retries. Último erro: {last_err}")
+    raise RuntimeError(f"Falha ao ler o CSV. Último erro: {last_err}")
 
-
-def fetch_day(url, unidade_gestora, gestao, day, page_size=200, max_pages=20):
-    day_br = day.strftime("%d/%m/%Y")
-    items = []
-
-    for page in range(1, max_pages + 1):
-        params = {
-            "unidadeGestora": unidade_gestora,
-            "gestao": gestao,
-            "dataEmissao": day_br,
-            "fase": FASE_EMPENHO,
-            "pagina": page,
-            "tamanhoPagina": page_size,
-        }
-
-        r = request_with_retry(url, params)
-        data = r.json()
-
-        if not data:
-            break
-
-        items.extend(data)
-
-        if len(data) < page_size:
-            break
-
-    return items
-
-# ======================================================
-# UTILIDADES
-# ======================================================
-def normalize(items):
-    if not items:
-        return pd.DataFrame()
-
-    df = pd.json_normalize(items)
-
-    if "valor" in df.columns:
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-
-    if "data" in df.columns:
-        df["data"] = pd.to_datetime(df["data"], errors="coerce")
-
-    return df
+def to_excel_bytes(df: pd.DataFrame) -> bytes:
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="UO_52111_52911")
+    return out.getvalue()
 
 
-def to_excel_bytes(dfs: dict) -> bytes:
-    bio = io.BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
-        for name, df in dfs.items():
-            df.to_excel(writer, index=False, sheet_name=name[:31])
-    return bio.getvalue()
-
-
-def agg_top(df, col, top_n):
-    if df.empty or col not in df.columns:
-        return pd.DataFrame()
-
-    return (
-        df.groupby(col, dropna=False)["valor"]
-        .sum()
-        .reset_index()
-        .sort_values("valor", ascending=False)
-        .head(top_n)
-    )
-
-# ======================================================
+# ==========================
 # UI
-# ======================================================
-st.title("📌 Empenhos – Execução Orçamentária")
-st.caption("Portal da Transparência · Despesas / Documentos · Fase 1 (Empenho)")
+# ==========================
+st.title("📥 Orçamento/Despesa 2026 — filtro por Unidade Orçamentária")
+st.write(f"Filtro aplicado: **{', '.join(sorted(UOS_ALVO))}**")
 
 with st.sidebar:
-    st.header("Parâmetros da Consulta")
-
-    unidade_gestora = st.text_input("Unidade Gestora", UG_PADRAO)
-    gestao = st.text_input("Gestão", GESTAO_PADRAO)
-
-    ano = st.number_input(
-        "Ano",
-        min_value=2011,
-        max_value=2100,
-        value=date.today().year
-    )
-
-    d_ini = st.date_input("Data inicial", date(int(ano), 1, 1))
-    d_fim = st.date_input("Data final", min(date.today(), date(int(ano), 12, 31)))
+    st.header("Parâmetros")
+    chunksize = st.selectbox("Tamanho do chunk (performance)", [50_000, 100_000, 200_000, 400_000], index=2)
+    carregar = st.button("⬇️ Baixar ZIP e carregar dados", use_container_width=True)
 
     st.divider()
-    st.header("Performance")
+    st.caption("Fonte:")
+    st.write(FONTE_URL)
 
-    page_size = st.selectbox("tamanhoPagina", [100, 200, 500], index=1)
-    max_pages = st.slider("Máx. páginas por dia", 1, 100, 20)
-
-    st.divider()
-    st.header("Filtros")
-
-    acao = st.text_input("Ação (SIAFI)")
-    elemento = st.text_input("Elemento (SIAFI)")
-    favorecido = st.text_input("Favorecido contém")
-
-    top_n = st.slider("Top N gráficos", 5, 30, 10)
-
-    run = st.button("🔎 Buscar Empenhos", use_container_width=True)
-
-if not run:
-    st.info("Configure os parâmetros e clique em **Buscar Empenhos**.")
+if not carregar:
+    st.info("Clique em **Baixar ZIP e carregar dados**.")
     st.stop()
 
-if d_ini > d_fim:
-    st.error("Data inicial maior que a final.")
-    st.stop()
+with st.spinner("Baixando ZIP…"):
+    zip_bytes = baixar_zip(FONTE_URL)
 
-# ======================================================
-# EXECUÇÃO
-# ======================================================
-url = f"{BASE_URL}/{ENDPOINT}"
+with st.spinner("Localizando CSV no ZIP…"):
+    csv_name = achar_primeiro_csv_no_zip(zip_bytes)
 
-total_days = (d_fim - d_ini).days + 1
-progress = st.progress(0, text="Iniciando consulta...")
+st.success(f"CSV encontrado no ZIP: **{csv_name}**")
 
-all_items = []
-cur = d_ini
-i = 0
+with st.spinner("Lendo CSV e filtrando por Unidade Orçamentária (em chunks)…"):
+    df = ler_csv_filtrado_do_zip(zip_bytes, csv_name, UOS_ALVO, chunksize=int(chunksize))
 
-with st.spinner("Consultando API dia a dia..."):
-    while cur <= d_fim:
-        i += 1
-        progress.progress(
-            i / total_days,
-            text=f"{cur.strftime('%d/%m/%Y')} ({i}/{total_days})"
-        )
+if df.empty:
+    st.warning("Nenhum registro encontrado para as Unidades Orçamentárias informadas.")
+else:
+    st.success(f"Registros após filtro: **{len(df):,}**".replace(",", "."))
 
-        items = fetch_day(
-            url,
-            unidade_gestora.strip(),
-            gestao.strip(),
-            cur,
-            page_size=page_size,
-            max_pages=max_pages,
-        )
-
-        all_items.extend(items)
-        cur += timedelta(days=1)
-
-progress.progress(1.0)
-
-df = normalize(all_items)
-
-# ======================================================
-# FILTROS PÓS-COLETA
-# ======================================================
-if acao and "acao" in df.columns:
-    df = df[df["acao"].astype(str) == acao]
-
-if elemento and "elemento" in df.columns:
-    df = df[df["elemento"].astype(str) == elemento]
-
-if favorecido:
-    needle = favorecido.lower()
-    cols = [c for c in ["nomeFavorecido", "favorecido"] if c in df.columns]
-    if cols:
-        mask = False
-        for c in cols:
-            mask |= df[c].fillna("").str.lower().str.contains(needle)
-        df = df[mask]
-
-# ======================================================
-# KPIs
-# ======================================================
-c1, c2, c3 = st.columns(3)
-
-with c1:
-    st.metric("Registros", f"{len(df):,}".replace(",", "."))
-
-with c2:
-    total = df["valor"].sum() if "valor" in df.columns else 0
-    st.metric(
-        "Total Empenhado (R$)",
-        f"{total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    )
-
-with c3:
-    st.metric("Período", f"{d_ini} → {d_fim}")
-
-# ======================================================
-# GRÁFICOS
-# ======================================================
-st.divider()
-left, right = st.columns(2)
-
-with left:
-    st.subheader("📊 Top por Ação")
-    top_acao = agg_top(df, "acao", top_n)
-    st.bar_chart(top_acao.set_index("acao")["valor"]) if not top_acao.empty else st.info("Sem dados")
-
-with right:
-    st.subheader("📊 Top por Favorecido")
-    fav_col = "nomeFavorecido" if "nomeFavorecido" in df.columns else "favorecido"
-    top_fav = agg_top(df, fav_col, top_n) if fav_col in df.columns else pd.DataFrame()
-    st.bar_chart(top_fav.set_index(fav_col)["valor"]) if not top_fav.empty else st.info("Sem dados")
-
-# ======================================================
-# TABELA + EXPORTAÇÃO
-# ======================================================
-st.divider()
-st.subheader("📋 Detalhamento")
+# ==========================
+# EXIBIÇÃO + DOWNLOADS
+# ==========================
+st.subheader("📊 Dados filtrados")
 st.dataframe(df, use_container_width=True)
 
 st.subheader("⬇️ Exportar")
 st.download_button(
-    "Baixar CSV",
+    "Baixar CSV filtrado",
     data=df.to_csv(index=False).encode("utf-8"),
-    file_name="empenhos_ug120052.csv",
+    file_name="orcamento_despesa_2026_uo_52111_52911.csv",
     mime="text/csv",
 )
-
-xlsx = to_excel_bytes({
-    "empenhos": df,
-    "top_acao": top_acao if not top_acao.empty else pd.DataFrame(),
-})
-
 st.download_button(
-    "Baixar Excel",
-    data=xlsx,
-    file_name="empenhos_ug120052.xlsx",
+    "Baixar Excel filtrado",
+    data=to_excel_bytes(df),
+    file_name="orcamento_despesa_2026_uo_52111_52911.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+
+# ==========================
+# DICIONÁRIO DE DADOS (resumo)
+# ==========================
+with st.expander("📘 Dicionário de dados (resumo)"):
+    st.markdown(
+        """
+**Colunas principais (conforme informado):**
+- Exercício
+- Código/Nome Órgão Superior e Subordinado
+- **Código/Nome Unidade Orçamentária**
+- Código/Nome Função e Subfunção
+- Código/Nome Programa Orçamentário
+- Código/Nome Ação
+- Categoria Econômica
+- Grupo de Despesa (GND)
+- Elemento de Despesa
+- Orçamento Inicial (R$)
+- Orçamento Atualizado (R$)
+- Orçamento Empenhado (R$)
+- Orçamento Realizado (R$)
+- % Realizado do orçamento (Realizado/Atualizado * 100)
+        """
+    )
+
+# ==========================
+# RODAPÉ (FONTE)
+# ==========================
+st.markdown("---")
+st.caption(f"Fonte dos dados: {FONTE_URL}")

@@ -4,15 +4,13 @@ import zipfile
 import io
 import pandas as pd
 
-from datetime import date
-
 # ==========================
 # CONFIG
 # ==========================
 st.set_page_config(page_title="Orçamento/Despesa — Download de Dados", layout="wide")
 
 BASE_PAGE = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa"
-DEFAULT_YEAR = 2026  # ajuste se quiser (ex.: date.today().year)
+DEFAULT_YEAR = 2026  # ajuste se quiser
 
 # ==========================
 # FUNÇÕES
@@ -33,13 +31,8 @@ def listar_arquivos_zip(zip_bytes: bytes) -> list[str]:
         return z.namelist()
 
 def extrair_csv_bytes(zip_bytes: bytes, csv_name: str) -> tuple[bytes, str]:
-    """
-    Extrai o CSV pelo nome exato; se não achar, usa o primeiro .csv.
-    Retorna (csv_bytes, nome_usado).
-    """
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         names = z.namelist()
-
         if csv_name in names:
             chosen = csv_name
         else:
@@ -47,7 +40,6 @@ def extrair_csv_bytes(zip_bytes: bytes, csv_name: str) -> tuple[bytes, str]:
             if not csvs:
                 raise RuntimeError(f"Não encontrei CSV no ZIP. Arquivos: {names[:30]}")
             chosen = csvs[0]
-
         with z.open(chosen) as f:
             return f.read(), chosen
 
@@ -76,15 +68,52 @@ def filtrar_df(df: pd.DataFrame, filtros: dict) -> pd.DataFrame:
     return out
 
 def detectar_colunas_orcamento(df: pd.DataFrame) -> list[str]:
-    """
-    Detecta todas as colunas cujo nome começa com 'Orçamento' (ignorando espaços).
-    """
     cols = []
     for c in df.columns:
         c_strip = str(c).strip()
         if c_strip.lower().startswith("orçamento"):
             cols.append(c)
     return cols
+
+def detectar_colunas_percentuais(df: pd.DataFrame) -> list[str]:
+    cols = []
+    for c in df.columns:
+        c_strip = str(c).strip()
+        if c_strip.startswith("%"):
+            cols.append(c)
+    return cols
+
+def escolher_top3_orcamento(cols_orc: list[str]) -> list[str]:
+    norm = {c: str(c).strip().lower() for c in cols_orc}
+    preferencias = [
+        "orçamento atualizado",
+        "orçamento empenhado",
+        "orçamento realizado",
+        "orçamento inicial",
+    ]
+    escolhidas = []
+    for pref in preferencias:
+        for c, n in norm.items():
+            if pref in n and c not in escolhidas:
+                escolhidas.append(c)
+                break
+    for c in cols_orc:
+        if c not in escolhidas:
+            escolhidas.append(c)
+        if len(escolhidas) >= 3:
+            break
+    return escolhidas[:3]
+
+def parse_brl_number_series(s: pd.Series) -> pd.Series:
+    x = (
+        s.astype(str)
+        .str.replace("\xa0", "", regex=False)
+        .str.replace("R$", "", regex=False)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.strip()
+    )
+    return pd.to_numeric(x, errors="coerce")
 
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
     out = io.BytesIO()
@@ -110,7 +139,7 @@ if "csv_name_used" not in st.session_state:
 # UI
 # ==========================
 st.title("📥 Orçamento/Despesa — Download de Dados (ZIP → CSV)")
-st.caption("Sem API: o app baixa o ZIP do Portal, extrai o CSV do ano e permite filtros e gráficos na tela.")
+st.caption("Painel exploratório: filtros + escolha de dimensões + gráficos atualizando automaticamente.")
 
 with st.sidebar:
     st.header("Ano e carga dos dados")
@@ -131,14 +160,22 @@ with st.sidebar:
     st.caption("CSV esperado dentro do ZIP:")
     st.code(csv_name_expected)
 
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         carregar = st.button("⬇️ Carregar", use_container_width=True)
-    with col2:
+    with c2:
         limpar = st.button("🧹 Limpar", use_container_width=True)
 
     st.divider()
-    st.caption("Dica: depois de carregar uma vez, você pode mexer nos filtros à vontade sem recarregar.")
+    st.subheader("Exibição do gráfico")
+    mostrar_tudo = st.checkbox("Mostrar todas as categorias (pode ficar pesado)", value=False)
+    limite_n = st.number_input(
+        "Se não mostrar tudo, limitar para N categorias (explícito)",
+        min_value=5,
+        max_value=500,
+        value=50,
+        step=5
+    )
 
 if limpar:
     st.session_state.df = None
@@ -190,103 +227,133 @@ with st.expander("📦 Arquivos encontrados no ZIP"):
 # ==========================
 # FILTROS DINÂMICOS
 # ==========================
-st.subheader("🎛 Filtros dinâmicos")
+st.subheader("🎛 Filtros (selecione colunas e valores)")
 
-cols = list(df.columns)
-
+all_cols = list(df.columns)
 suggest = [c for c in [
+    "Código Órgão Superior",
+    "Nome Órgão Superior",
+    "Código Órgão Subordinado",
+    "Nome Órgão Subordinado",
     "Código Unidade Orçamentária  ",
     "Nome Unidade Orçamentária  ",
     "Código Ação",
     "Nome Ação",
-    "Nome Órgão Superior",
-    "Nome Órgão Subordinado",
-] if c in cols]
+] if c in all_cols]
 
 filter_cols = st.multiselect(
-    "Escolha colunas para filtrar (opcional)",
-    options=cols,
+    "Quais colunas você quer usar como filtro?",
+    options=all_cols,
     default=suggest[:4],
-    key="filter_cols"
+    key="filter_cols_any"
 )
 
 filtros = {}
 for c in filter_cols:
     uniques = df[c].astype(str).fillna("").unique().tolist()
     uniques = [u for u in uniques if u != ""]
-
     if len(uniques) > 3000:
-        st.warning(f"Coluna '{c}' tem muitos valores ({len(uniques)}). Selecione outra coluna para filtro.")
+        st.warning(f"Coluna '{c}' tem muitos valores ({len(uniques)}). Filtre por outra coluna antes.")
         continue
-
     selecionados = st.multiselect(f"Filtro: {c}", options=sorted(uniques), key=f"ms_{c}")
     if selecionados:
         filtros[c] = selecionados
 
 df_f = filtrar_df(df, filtros)
-st.write(f"Linhas após filtros: **{len(df_f):,}**".replace(",", "."))
+
+k1, k2 = st.columns(2)
+with k1:
+    st.metric("Linhas (após filtros)", f"{len(df_f):,}".replace(",", "."))
+with k2:
+    st.metric("Ano carregado", str(st.session_state.ano_carregado))
+
+# ==========================
+# AGRUPAMENTO (QUALQUER COLUNA)
+# ==========================
+st.subheader("📌 Dimensão (Agrupar por)")
+
+orc_cols = detectar_colunas_orcamento(df_f)
+pct_cols = detectar_colunas_percentuais(df_f)
+
+# todas as colunas (exceto métricas) como dimensão
+dim_options = [c for c in df_f.columns if c not in orc_cols and c not in pct_cols]
+if not dim_options:
+    dim_options = list(df_f.columns)
+
+group_col = st.selectbox("Escolha a dimensão", options=dim_options, key="group_any")
 
 # ==========================
 # GRÁFICOS
 # ==========================
-st.subheader("📊 Gráfico por agrupamento")
+st.subheader("📊 Gráficos (atualizam conforme filtros e dimensão)")
 
-orc_cols = detectar_colunas_orcamento(df_f)
-
+# ---- 3 gráficos de orçamento (sempre)
 if not orc_cols:
-    st.warning("Não encontrei nenhuma coluna que comece com 'Orçamento'. Confira os nomes das colunas no DataFrame.")
+    st.warning("Não encontrei colunas que comecem com 'Orçamento' neste arquivo.")
 else:
-    col_val = st.selectbox(
-        "Qual coluna de valor (Orçamento) você quer somar?",
-        options=orc_cols,
-        index=0,
-        key="col_val"
-    )
+    top3 = escolher_top3_orcamento(orc_cols)
 
-    group_options = [c for c in [
-        "Código Ação", "Nome Ação",
-        "Código Unidade Orçamentária  ", "Nome Unidade Orçamentária  ",
-        "Nome Órgão Superior", "Nome Órgão Subordinado",
-        "Nome Função", "Nome Subfunção",
-        "Nome Grupo de Despesa", "Nome Elemento de Despesa"
-    ] if c in df_f.columns]
+    g1, g2, g3 = st.columns(3)
 
-    if not group_options:
-        group_options = list(df_f.columns)[:1]
+    for ax, col_val in zip([g1, g2, g3], top3):
+        with ax:
+            s_num = parse_brl_number_series(df_f[col_val]).fillna(0)
 
-    group_col = st.selectbox("Agrupar por", options=group_options, key="group_col")
+            tmp = df_f[[group_col]].copy()
+            tmp["_valor"] = s_num
 
-    # converte BR -> número (tolerante)
-    s = (
-        df_f[col_val]
-        .astype(str)
-        .str.replace("\xa0", "", regex=False)   # remove NBSP
-        .str.replace("R$", "", regex=False)
-        .str.replace(".", "", regex=False)
-        .str.replace(",", ".", regex=False)
-        .str.strip()
-    )
+            agg = (
+                tmp.groupby(group_col, dropna=False)["_valor"]
+                .sum()
+                .reset_index()
+                .sort_values("_valor", ascending=False)
+            )
 
-    df_plot = df_f.copy()
-    df_plot["_valor_num"] = pd.to_numeric(s, errors="coerce").fillna(0)
+            if not mostrar_tudo:
+                agg = agg.head(int(limite_n))
 
-    top_n = st.slider("Top N", 5, 50, 15, key="top_n")
+            st.caption(f"**{str(col_val).strip()}** (soma)")
+            if len(agg) == 0:
+                st.info("Sem dados para o gráfico.")
+            else:
+                st.bar_chart(agg.set_index(group_col)["_valor"], height=320)
+                st.dataframe(agg, use_container_width=True, hide_index=True)
 
-    agg = (
-        df_plot.groupby(group_col, dropna=False)["_valor_num"]
-        .sum()
+# ---- Percentuais: todas as colunas % em um gráfico (selecionável) + tabela
+st.subheader("📈 Percentuais (%)")
+
+if not pct_cols:
+    st.info("Não encontrei colunas que começam com '%'.")
+else:
+    # o usuário escolhe QUAL % quer ver, mas todas ficam disponíveis
+    pct_col = st.selectbox("Escolha qual percentual (%) visualizar", options=pct_cols, key="pct_col")
+
+    pct_num = parse_brl_number_series(df_f[pct_col]).fillna(0)
+
+    tmp = df_f[[group_col]].copy()
+    tmp["_pct"] = pct_num
+
+    agg_pct = (
+        tmp.groupby(group_col, dropna=False)["_pct"]
+        .mean()
         .reset_index()
-        .sort_values("_valor_num", ascending=False)
-        .head(top_n)
+        .sort_values("_pct", ascending=False)
     )
 
-    st.bar_chart(agg.set_index(group_col)["_valor_num"])
-    st.dataframe(agg, use_container_width=True, hide_index=True)
+    if not mostrar_tudo:
+        agg_pct = agg_pct.head(int(limite_n))
+
+    st.caption(f"**{str(pct_col).strip()}** (média por grupo)")
+    if len(agg_pct) == 0:
+        st.info("Sem dados para o gráfico.")
+    else:
+        st.bar_chart(agg_pct.set_index(group_col)["_pct"], height=320)
+        st.dataframe(agg_pct, use_container_width=True, hide_index=True)
 
 # ==========================
 # TABELA + DOWNLOAD
 # ==========================
-st.subheader("📋 Tabela")
+st.subheader("📋 Tabela (após filtros)")
 st.dataframe(df_f, use_container_width=True)
 
 st.subheader("⬇️ Exportar")
@@ -296,7 +363,6 @@ st.download_button(
     file_name=f"orcamento_despesa_{int(st.session_state.ano_carregado)}_filtrado.csv",
     mime="text/csv",
 )
-
 st.download_button(
     "Baixar Excel (filtrado)",
     data=to_excel_bytes(df_f),

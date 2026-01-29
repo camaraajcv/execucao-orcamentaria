@@ -366,7 +366,7 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
     if not show_pct:
         return bars.properties(height=380)
 
-    line = alt.Chart(agg).mark_line(point=True).encode(
+    points = alt.Chart(agg).mark_point(filled=True, size=60).encode(
         x=alt.X("dim:N", title=dim_label, sort="-y"),
         y=alt.Y("pct:Q", title="% Realizado (0–100)", scale=alt.Scale(domain=[0, 100])),
         tooltip=[
@@ -375,7 +375,8 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float,
         ],
     )
 
-    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=380)
+
+    return alt.layer(bars, points).resolve_scale(y="independent").properties(height=380)
 
 # ==========================
 # AGREGAÇÃO

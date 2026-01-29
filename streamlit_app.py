@@ -79,7 +79,6 @@ def find_col(df: pd.DataFrame, must_contain: str) -> str | None:
     return None
 
 def parse_brl_number_series(s: pd.Series) -> pd.Series:
-    # tolerante: remove NBSP, R$, espaços, separador de milhar e converte vírgula decimal
     x = (
         s.astype(str)
         .str.replace("\xa0", "", regex=False)
@@ -92,18 +91,16 @@ def parse_brl_number_series(s: pd.Series) -> pd.Series:
     return pd.to_numeric(x, errors="coerce")
 
 def parse_percent_series(s: pd.Series) -> pd.Series:
-    # aceita "12,3", "12.3", "12,3%" etc.
     x = (
         s.astype(str)
         .str.replace("\xa0", "", regex=False)
         .str.replace("%", "", regex=False)
         .str.replace(" ", "", regex=False)
-        .str.replace(".", "", regex=False)   # em alguns CSVs o ponto pode ser milhar; se for decimal, geralmente vem vírgula
+        .str.replace(".", "", regex=False)   # geralmente ponto é milhar; decimal vem com vírgula
         .str.replace(",", ".", regex=False)
         .str.strip()
     )
     out = pd.to_numeric(x, errors="coerce")
-    # se vier 0-1, converte para 0-100 (raro, mas já vi)
     if out.notna().any() and out.max(skipna=True) <= 1.5:
         out = out * 100
     return out
@@ -211,39 +208,42 @@ if st.session_state.df is None:
 df = st.session_state.df
 
 # ==========================
-# DETECÇÃO DE COLUNAS IMPORTANTES (nomes exatos do seu arquivo)
+# DETECÇÃO DE COLUNAS IMPORTANTES (métricas)
 # ==========================
 COL_ATUALIZADO = find_col(df, "orçamento atualizado")
 COL_EMPENHADO  = find_col(df, "orçamento empenhado")
 COL_REALIZADO  = find_col(df, "orçamento realizado")
 COL_PCT        = find_col(df, "% realizado")
 
-# dimensões sugeridas (mas vamos permitir qualquer)
+# ==========================
+# DETECÇÃO DE DIMENSÕES PEDIDAS (para abas)
+# ==========================
 COL_ACAO_COD   = find_col(df, "código ação") or find_col(df, "codigo ação")
 COL_GND_NOME   = find_col(df, "nome grupo de despesa") or find_col(df, "grupo de despesa")
+COL_ELEM_NOME  = find_col(df, "nome elemento de despesa") or find_col(df, "elemento de despesa")
+COL_FUNCAO_NOME = find_col(df, "nome função") or find_col(df, "funcao")
 
 # ==========================
 # FILTROS DINÂMICOS (qualquer coluna)
 # ==========================
 with st.sidebar:
     all_cols = list(df.columns)
-
-    # sugestões comuns (você pode remover/ajustar)
     suggest = [c for c in [
         find_col(df, "código órgão superior"),
         find_col(df, "código órgão subordinado"),
         find_col(df, "código unidade orçamentária"),
-        find_col(df, "código ação"),
+        COL_FUNCAO_NOME,
+        COL_GND_NOME,
+        COL_ELEM_NOME,
+        COL_ACAO_COD,
         find_col(df, "nome ação"),
         find_col(df, "nome programa"),
-        find_col(df, "nome função"),
-        find_col(df, "nome subfunção"),
     ] if c is not None]
 
     filter_cols = st.multiselect(
         "Colunas para filtrar",
         options=all_cols,
-        default=list(dict.fromkeys(suggest))[:4],
+        default=list(dict.fromkeys(suggest))[:5],
         key="filter_cols_any",
     )
 
@@ -251,7 +251,6 @@ filtros = {}
 for c in filter_cols:
     uniques = df[c].astype(str).fillna("").unique().tolist()
     uniques = [u for u in uniques if u != ""]
-    # proteção UI
     if len(uniques) > 4000:
         st.sidebar.warning(f"'{c}' tem muitos valores ({len(uniques)}). Filtre outra coluna antes.")
         continue
@@ -262,7 +261,7 @@ for c in filter_cols:
 df_f = filtrar_df(df, filtros)
 
 # ==========================
-# PREPARA MÉTRICAS NUMÉRICAS (sempre as 4 que você pediu)
+# VALIDA MÉTRICAS
 # ==========================
 missing = [name for name, col in [
     ("ORÇAMENTO ATUALIZADO (R$)", COL_ATUALIZADO),
@@ -275,17 +274,20 @@ if missing:
     st.error(
         "Não consegui localizar automaticamente estas colunas no seu CSV:\n\n- "
         + "\n- ".join(missing)
-        + "\n\nAbra a tabela e me diga o nome exato (copiar/colar) para eu ajustar o mapeamento."
+        + "\n\nAbra a tabela e me diga o nome exato (copiar/colar) para eu ajustar."
     )
     st.stop()
 
+# ==========================
+# PREPARA DF DE MÉTRICAS NUMÉRICAS
+# ==========================
 dfm = df_f.copy()
 dfm["_atualizado"] = parse_brl_number_series(dfm[COL_ATUALIZADO]).fillna(0)
 dfm["_empenhado"]  = parse_brl_number_series(dfm[COL_EMPENHADO]).fillna(0)
 dfm["_realizado"]  = parse_brl_number_series(dfm[COL_REALIZADO]).fillna(0)
 dfm["_pct"]        = parse_percent_series(dfm[COL_PCT]).fillna(0)
 
-# KPIs gerais (mais “painel”)
+# KPIs
 total_at = float(dfm["_atualizado"].sum())
 total_em = float(dfm["_empenhado"].sum())
 total_re = float(dfm["_realizado"].sum())
@@ -298,25 +300,50 @@ k3.metric("Orçamento Realizado (R$)",  f"{total_re:,.2f}".replace(",", "X").rep
 k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%")
 
 # ==========================
-# CONTROLES DE VISUALIZAÇÃO (sem Top N invisível)
+# CONTROLES DE VISUALIZAÇÃO
 # ==========================
 with st.sidebar:
     st.divider()
     st.header("3) Visualização")
+
     mostrar_tudo = st.checkbox("Mostrar todas as categorias (pode pesar)", value=False)
-    limite_n = st.number_input("Se não mostrar tudo, limitar para N", min_value=5, max_value=1000, value=50, step=5)
+    limite_n = st.number_input("Se não mostrar tudo, limitar para N", min_value=5, max_value=2000, value=50, step=5)
+
+    st.divider()
+    st.subheader("Métricas no gráfico")
+
+    metric_options = [
+        "Orçamento Atualizado (R$)",
+        "Orçamento Empenhado (R$)",
+        "Orçamento Realizado (R$)",
+    ]
+    metric_map = {
+        "Orçamento Atualizado (R$)": "atualizado",
+        "Orçamento Empenhado (R$)": "empenhado",
+        "Orçamento Realizado (R$)": "realizado",
+    }
+
+    selected_metrics = st.multiselect(
+        "Selecione as métricas (barras)",
+        options=metric_options,
+        default=metric_options,
+    )
+
+    show_pct_line = st.checkbox("Mostrar linha de % Realizado", value=True)
+
+    if not selected_metrics:
+        st.warning("Selecione pelo menos 1 métrica.")
+        selected_metrics = ["Orçamento Realizado (R$)"]
+
+metric_keys = [metric_map[m] for m in selected_metrics]
 
 # ==========================
-# FUNÇÃO: gráfico profissional com escala fixa e % (eixo secundário)
+# GRÁFICO ALTair (profissional)
 # ==========================
-def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float):
-    """
-    agg precisa ter colunas: dim, atualizado, empenhado, realizado, pct
-    """
-    # dados long para barras (3 orçamentos)
+def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float, metric_keys: list[str], show_pct: bool):
     bars_long = agg.melt(
         id_vars=["dim"],
-        value_vars=["atualizado", "empenhado", "realizado"],
+        value_vars=metric_keys,
         var_name="métrica",
         value_name="valor",
     )
@@ -336,7 +363,9 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float)
         xOffset="métrica:N",
     )
 
-    # linha de percentual (eixo secundário fixo 0-100)
+    if not show_pct:
+        return bars.properties(height=380)
+
     line = alt.Chart(agg).mark_line(point=True).encode(
         x=alt.X("dim:N", title=dim_label, sort="-y"),
         y=alt.Y("pct:Q", title="% Realizado (0–100)", scale=alt.Scale(domain=[0, 100])),
@@ -346,17 +375,12 @@ def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float)
         ],
     )
 
-    # camada com eixos independentes
-    layered = alt.layer(bars, line).resolve_scale(y="independent").properties(height=380)
-
-    return layered
+    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=380)
 
 # ==========================
-# AGREGAÇÕES E TABS (painel “mais profissional”)
+# AGREGAÇÃO
 # ==========================
-tab1, tab2, tab3, tab4 = st.tabs(["Visão Geral", "Por Ação (código)", "Por Grupo de Despesa", "Tabela & Exportação"])
-
-def build_agg(dim_col: str, dim_label: str) -> pd.DataFrame:
+def build_agg(dim_col: str) -> pd.DataFrame:
     tmp = dfm[[dim_col]].copy()
     tmp["atualizado"] = dfm["_atualizado"]
     tmp["empenhado"]  = dfm["_empenhado"]
@@ -367,48 +391,44 @@ def build_agg(dim_col: str, dim_label: str) -> pd.DataFrame:
         atualizado=("atualizado", "sum"),
         empenhado=("empenhado", "sum"),
         realizado=("realizado", "sum"),
-        pct=("pct", "mean"),  # percentuais: média faz mais sentido do que soma
+        pct=("pct", "mean"),
     ).reset_index()
 
     agg = agg.rename(columns={dim_col: "dim"})
-
-    # ordena pelo realizado (boa leitura)
+    agg["dim"] = agg["dim"].astype(str).replace({"": "(vazio)"})
     agg = agg.sort_values("realizado", ascending=False)
 
     if not mostrar_tudo:
         agg = agg.head(int(limite_n))
 
-    # remove dimensões vazias
-    agg["dim"] = agg["dim"].astype(str).replace({"": "(vazio)"})
     return agg
 
-# domínio Y FIXO: usa o máximo global dos 3 orçamentos após filtros (não por gráfico)
-ymax_global = float(
-    max(
-        dfm["_atualizado"].max(skipna=True),
-        dfm["_empenhado"].max(skipna=True),
-        dfm["_realizado"].max(skipna=True),
-        1.0,
-    )
-)
-# para agregar, o máximo pode aumentar (soma). Então usamos soma total por dim: máximo entre colunas agregadas
-# definimos depois de montar os aggs, mas já deixamos uma base
-y_domain_default = max(1.0, dfm["_atualizado"].sum(), dfm["_empenhado"].sum(), dfm["_realizado"].sum()) if mostrar_tudo else 1.0
+def y_max_from_agg(agg: pd.DataFrame) -> float:
+    return float(max(agg["atualizado"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
+
+# ==========================
+# TABS
+# ==========================
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Visão Geral",
+    "Por Ação (código)",
+    "Por Grupo de Despesa",
+    "Por Elemento de Despesa",
+    "Por Função",
+    "Tabela & Exportação"
+])
 
 with tab1:
     st.subheader("Visão Geral")
-    st.caption("Aqui você pode comparar rapidamente os totais e navegar para as análises por Ação e por Grupo de Despesa.")
-
-    # Um gráfico “top” por dimensão escolhida (livre), para explorar sem precisar ir em tabs
     dim_all = [c for c in df.columns if c not in [COL_ATUALIZADO, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
-    dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0)
+    default_idx = dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0
 
-    agg_any = build_agg(dim_choice, dim_choice)
+    dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)
 
-    # y fixo baseado no máximo agregado (tornando comparável dentro do gráfico)
-    y_max = float(max(agg_any["atualizado"].max(), agg_any["empenhado"].max(), agg_any["realizado"].max(), 1.0)) * 1.05
+    agg_any = build_agg(dim_choice)
+    y_max = y_max_from_agg(agg_any)
 
-    st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max), use_container_width=True)
+    st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
     st.dataframe(agg_any, use_container_width=True, hide_index=True)
 
 with tab2:
@@ -416,24 +436,42 @@ with tab2:
     if not COL_ACAO_COD:
         st.warning("Não encontrei a coluna de Código Ação no CSV.")
     else:
-        agg_acao = build_agg(COL_ACAO_COD, "Código Ação")
-        y_max = float(max(agg_acao["atualizado"].max(), agg_acao["empenhado"].max(), agg_acao["realizado"].max(), 1.0)) * 1.05
-
-        st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max), use_container_width=True)
+        agg_acao = build_agg(COL_ACAO_COD)
+        y_max = y_max_from_agg(agg_acao)
+        st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(agg_acao, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Por Grupo de Despesa (Nome Grupo de Despesa)")
+    st.subheader("Por Grupo de Despesa")
     if not COL_GND_NOME:
-        st.warning("Não encontrei a coluna de Nome Grupo de Despesa no CSV.")
+        st.warning("Não encontrei a coluna de Grupo de Despesa no CSV.")
     else:
-        agg_gnd = build_agg(COL_GND_NOME, "Grupo de Despesa")
-        y_max = float(max(agg_gnd["atualizado"].max(), agg_gnd["empenhado"].max(), agg_gnd["realizado"].max(), 1.0)) * 1.05
-
-        st.altair_chart(chart_budget_and_pct(agg_gnd, "Grupo de Despesa", y_max), use_container_width=True)
+        agg_gnd = build_agg(COL_GND_NOME)
+        y_max = y_max_from_agg(agg_gnd)
+        st.altair_chart(chart_budget_and_pct(agg_gnd, "Grupo de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(agg_gnd, use_container_width=True, hide_index=True)
 
 with tab4:
+    st.subheader("Por Elemento de Despesa")
+    if not COL_ELEM_NOME:
+        st.warning("Não encontrei a coluna de Elemento de Despesa no CSV.")
+    else:
+        agg_elem = build_agg(COL_ELEM_NOME)
+        y_max = y_max_from_agg(agg_elem)
+        st.altair_chart(chart_budget_and_pct(agg_elem, "Elemento de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
+        st.dataframe(agg_elem, use_container_width=True, hide_index=True)
+
+with tab5:
+    st.subheader("Por Função")
+    if not COL_FUNCAO_NOME:
+        st.warning("Não encontrei a coluna de Função no CSV.")
+    else:
+        agg_func = build_agg(COL_FUNCAO_NOME)
+        y_max = y_max_from_agg(agg_func)
+        st.altair_chart(chart_budget_and_pct(agg_func, "Função", y_max, metric_keys, show_pct_line), use_container_width=True)
+        st.dataframe(agg_func, use_container_width=True, hide_index=True)
+
+with tab6:
     st.subheader("Tabela (dados filtrados) & Exportação")
 
     with st.expander("📦 Arquivos encontrados no ZIP"):
@@ -460,7 +498,7 @@ with tab4:
         )
 
 # ==========================
-# RODAPÉ (FONTE)
+# RODAPÉ
 # ==========================
 st.markdown("---")
 st.caption(

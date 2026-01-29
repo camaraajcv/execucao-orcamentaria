@@ -413,9 +413,9 @@ dfm["_realizado"]  = parse_brl_number_series(dfm[COL_REALIZADO]).fillna(0)
 dfm["_pct"]        = parse_percent_series(dfm[COL_PCT]).fillna(0)
 
 # KPIs
-total_atualizado = df_filtrado["Orçamento Atualizado (R$)"].sum()
-total_empenhado = df_filtrado["Orçamento Empenhado (R$)"].sum()
-total_realizado = df_filtrado["Orçamento Realizado (R$)"].sum()
+total_atualizado = dfm["Orçamento Atualizado (R$)"].sum()
+total_empenhado = dfm["Orçamento Empenhado (R$)"].sum()
+total_realizado = dfm["Orçamento Realizado (R$)"].sum()
 
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 

@@ -161,15 +161,14 @@ def fmt_mi_bi(v: float) -> str:
     if abs_v >= 1_000:
         return f"R$ {v/1_000:.2f} mil".replace(".", ",")
     return fmt_brl(v)
-def fmt_moeda_br(valor):
-    if valor is None:
-        return "R$ 0,00"
+def moeda_br(valor):
     return (
-        f"R$ {valor:,.2f}"
+        f"{valor:,.2f}"
         .replace(",", "X")
         .replace(".", ",")
         .replace("X", ".")
     )
+
 
 # ==========================
 # FORMATAÇÃO (tabelas)
@@ -423,17 +422,17 @@ st.markdown(f"""
 <div class="kpi-grid">
   <div class="kpi loa">
     <div class="label">LOA (R$)</div>
-    <div class="value">{fmt_mi_bi(total_at)}</div>
+    <div class="value">R$ {moeda_br(total_loa)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi emp">
     <div class="label">Empenhado (R$)</div>
-    <div class="value">{fmt_mi_bi(total_em)}</div>
+    <div class="value">R$ {moeda_br(total_loa)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi real">
     <div class="label">Realizado (R$)</div>
-    <div class="value">{fmt_mi_bi(total_re)}</div>
+    <div class="value">R$ {moeda_br(total_loa)}</div>
     <div class="sub">Após filtros aplicados</div>
   </div>
   <div class="kpi pct">

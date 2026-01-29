@@ -489,7 +489,7 @@ with tab1:
     y_max = y_max_from_agg(agg_any)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
-    st.dataframe(pretty_agg_styler(agg_any), use_container_width=True)
+    st.dataframe(pretty_agg_display(agg_any), use_container_width=True)
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")
@@ -499,7 +499,7 @@ with tab2:
         agg_acao = build_agg(COL_ACAO_COD)
         y_max = y_max_from_agg(agg_acao)
         st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(pretty_agg_styler(agg_acao), use_container_width=True)
+        st.dataframe(pretty_agg_display(agg_acao), use_container_width=True)
 
 with tab3:
     st.subheader("Por Grupo de Despesa")
@@ -509,7 +509,7 @@ with tab3:
         agg_gnd = build_agg(COL_GND_NOME)
         y_max = y_max_from_agg(agg_gnd)
         st.altair_chart(chart_budget_and_pct(agg_gnd, "Grupo de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(pretty_agg_styler(agg_gnd), use_container_width=True)
+        st.dataframe(pretty_agg_display(agg_gnd), use_container_width=True)
 
 with tab4:
     st.subheader("Por Elemento de Despesa")
@@ -519,7 +519,7 @@ with tab4:
         agg_elem = build_agg(COL_ELEM_NOME)
         y_max = y_max_from_agg(agg_elem)
         st.altair_chart(chart_budget_and_pct(agg_elem, "Elemento de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(pretty_agg_styler(agg_elem), use_container_width=True)
+        st.dataframe(pretty_agg_display(agg_elem), use_container_width=True)
 
 with tab5:
     st.subheader("Por Função")
@@ -529,7 +529,7 @@ with tab5:
         agg_func = build_agg(COL_FUNCAO_NOME)
         y_max = y_max_from_agg(agg_func)
         st.altair_chart(chart_budget_and_pct(agg_func, "Função", y_max, metric_keys, show_pct_line), use_container_width=True)
-        st.dataframe(pretty_agg_styler(agg_func), use_container_width=True)
+        st.dataframe(pretty_agg_display(agg_func), use_container_width=True)
 
 with tab6:
     st.subheader("Tabela (dados filtrados) & Exportação")

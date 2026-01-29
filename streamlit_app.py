@@ -8,22 +8,19 @@ from datetime import date
 # ==========================
 # CONFIG
 # ==========================
-st.set_page_config(page_title="Orçamento/Despesa 2026 — UO 52111 e 52911", layout="wide")
+st.set_page_config(page_title="Orçamento/Despesa — Download de Dados", layout="wide")
 
-FONTE_URL = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa/2026"
-UOS_ALVO = {"52111", "52911"}  # manter como string pra bater com qualquer formatação
+BASE_PAGE = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa"
+DEFAULT_YEAR = date.today().year
 
-# Coluna chave (como você descreveu)
-COL_UO = "Código Unidade Orçamentária"
+# Nome esperado dentro do zip (pelo seu exemplo)
+DEFAULT_CSV_NAME = "ano_OrcamentoDespesa.csv"
 
 # ==========================
 # FUNÇÕES
 # ==========================
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)  # cache 24h
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
 def baixar_zip(url: str) -> bytes:
-    """
-    Baixa o ZIP do Portal (ou o arquivo que o link devolver).
-    """
     headers = {
         "User-Agent": "Mozilla/5.0 (StreamlitCloud)",
         "Accept": "*/*",
@@ -33,153 +30,194 @@ def baixar_zip(url: str) -> bytes:
     r.raise_for_status()
     return r.content
 
-def achar_primeiro_csv_no_zip(zip_bytes: bytes) -> str:
-    """
-    Retorna o nome do primeiro arquivo .csv dentro do zip.
-    """
+def listar_arquivos_zip(zip_bytes: bytes) -> list[str]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        nomes = z.namelist()
-        csvs = [n for n in nomes if n.lower().endswith(".csv")]
-        if not csvs:
-            raise RuntimeError(f"Não encontrei nenhum CSV dentro do ZIP. Arquivos: {nomes[:20]}")
-        return csvs[0]
+        return z.namelist()
 
-def ler_csv_filtrado_do_zip(zip_bytes: bytes, member_csv: str, uos_alvo: set[str], chunksize: int = 200_000) -> pd.DataFrame:
-    """
-    Lê o CSV dentro do ZIP em chunks e filtra pelas UOs alvo.
-    """
-    # Tentativas de encoding e separador comuns em dados do governo
-    encodings = ["utf-8-sig", "latin-1"]
-    seps = [";", ","]
-
+def extrair_csv_bytes(zip_bytes: bytes, csv_name: str) -> bytes:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        with z.open(member_csv) as f:
-            raw = f.read()  # lê pra memória (se o CSV for gigante e estourar, eu te passo versão streaming)
-            bio = io.BytesIO(raw)
+        # tenta achar pelo nome exato; se não existir, tenta achar qualquer .csv
+        names = z.namelist()
+        if csv_name not in names:
+            csvs = [n for n in names if n.lower().endswith(".csv")]
+            if not csvs:
+                raise RuntimeError(f"Não encontrei CSV no ZIP. Arquivos: {names[:30]}")
+            # pega o primeiro csv encontrado
+            csv_name = csvs[0]
+
+        with z.open(csv_name) as f:
+            return f.read()
+
+def ler_csv(csv_bytes: bytes) -> pd.DataFrame:
+    # tentativas comuns (Portal costuma usar ; e latin-1, mas varia)
+    attempts = [
+        {"sep": ";", "encoding": "utf-8-sig"},
+        {"sep": ";", "encoding": "latin-1"},
+        {"sep": ",", "encoding": "utf-8-sig"},
+        {"sep": ",", "encoding": "latin-1"},
+    ]
 
     last_err = None
-    for enc in encodings:
-        for sep in seps:
-            try:
-                # Reinicia o buffer a cada tentativa
-                bio.seek(0)
+    for a in attempts:
+        try:
+            bio = io.BytesIO(csv_bytes)
+            df = pd.read_csv(bio, sep=a["sep"], encoding=a["encoding"], low_memory=False)
+            return df
+        except Exception as e:
+            last_err = e
 
-                # Leitura em chunks para filtrar sem carregar tudo
-                it = pd.read_csv(
-                    bio,
-                    sep=sep,
-                    encoding=enc,
-                    dtype=str,
-                    chunksize=chunksize,
-                    low_memory=False
-                )
+    raise RuntimeError(f"Falha ao ler CSV. Último erro: {last_err}")
 
-                partes = []
-                for chunk in it:
-                    if COL_UO not in chunk.columns:
-                        raise RuntimeError(
-                            f"Coluna '{COL_UO}' não encontrada. Colunas disponíveis: {list(chunk.columns)[:40]}"
-                        )
-                    # Normaliza UO como string sem espaços
-                    uo = chunk[COL_UO].astype(str).str.strip()
-                    partes.append(chunk[uo.isin(uos_alvo)])
+def filtrar_df(df: pd.DataFrame, filtros: dict) -> pd.DataFrame:
+    out = df
+    for col, vals in filtros.items():
+        if vals and col in out.columns:
+            out = out[out[col].astype(str).isin([str(v) for v in vals])]
+    return out
 
-                df = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame()
-                return df
-
-            except Exception as e:
-                last_err = e
-
-    raise RuntimeError(f"Falha ao ler o CSV. Último erro: {last_err}")
-
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="UO_52111_52911")
-    return out.getvalue()
-
+def col_valor_existente(df: pd.DataFrame) -> str | None:
+    # tenta encontrar alguma coluna de valor típica
+    candidatos = [
+        "Orçamento Empenhado (R$)",
+        "Orçamento Realizado (R$)",
+        "Orçamento Atualizado (R$)",
+        "Orçamento Inicial (R$)",
+        "valor",
+    ]
+    for c in candidatos:
+        if c in df.columns:
+            return c
+    return None
 
 # ==========================
 # UI
 # ==========================
-st.title("📥 Orçamento/Despesa 2026 — filtro por Unidade Orçamentária")
-st.write(f"Filtro aplicado: **{', '.join(sorted(UOS_ALVO))}**")
+st.title("📥 Orçamento/Despesa — Download de Dados (ZIP → CSV)")
+st.caption("Sem API: o app baixa o arquivo do Portal, extrai o CSV e te dá filtros e gráficos.")
 
 with st.sidebar:
-    st.header("Parâmetros")
-    chunksize = st.selectbox("Tamanho do chunk (performance)", [50_000, 100_000, 200_000, 400_000], index=2)
-    carregar = st.button("⬇️ Baixar ZIP e carregar dados", use_container_width=True)
+    st.header("Ano e download")
+    ano = st.number_input("Ano", min_value=2011, max_value=2100, value=DEFAULT_YEAR, step=1)
 
-    st.divider()
-    st.caption("Fonte:")
-    st.write(FONTE_URL)
+    # URL da página do ano (como você passou)
+    fonte_url = f"{BASE_PAGE}/{int(ano)}"
+
+    # Nome do CSV dentro do ZIP (você disse que é esse)
+    csv_name = st.text_input("Nome do CSV dentro do ZIP", value=DEFAULT_CSV_NAME)
+
+    carregar = st.button("⬇️ Baixar e carregar dados", use_container_width=True)
 
 if not carregar:
-    st.info("Clique em **Baixar ZIP e carregar dados**.")
+    st.info("Escolha o ano e clique em **Baixar e carregar dados**.")
     st.stop()
 
-with st.spinner("Baixando ZIP…"):
-    zip_bytes = baixar_zip(FONTE_URL)
+with st.spinner("Baixando ZIP do Portal…"):
+    zip_bytes = baixar_zip(fonte_url)
 
-with st.spinner("Localizando CSV no ZIP…"):
-    csv_name = achar_primeiro_csv_no_zip(zip_bytes)
+files_in_zip = listar_arquivos_zip(zip_bytes)
+st.success("ZIP baixado com sucesso.")
+with st.expander("📦 Arquivos encontrados no ZIP"):
+    st.write(files_in_zip)
 
-st.success(f"CSV encontrado no ZIP: **{csv_name}**")
+with st.spinner("Extraindo CSV…"):
+    csv_bytes = extrair_csv_bytes(zip_bytes, csv_name)
 
-with st.spinner("Lendo CSV e filtrando por Unidade Orçamentária (em chunks)…"):
-    df = ler_csv_filtrado_do_zip(zip_bytes, csv_name, UOS_ALVO, chunksize=int(chunksize))
+with st.spinner("Lendo CSV…"):
+    df = ler_csv(csv_bytes)
 
-if df.empty:
-    st.warning("Nenhum registro encontrado para as Unidades Orçamentárias informadas.")
+st.success(f"Dados carregados: **{len(df):,}** linhas × **{len(df.columns)}** colunas".replace(",", "."))
+
+# ==========================
+# FILTROS DINÂMICOS
+# ==========================
+st.subheader("🎛 Filtros dinâmicos (na própria tela)")
+
+# escolhe até 4 colunas para filtrar (simples e prático)
+cols = list(df.columns)
+default_filter_cols = [c for c in [
+    "Código Unidade Orçamentária  ",
+    "Nome Unidade Orçamentária  ",
+    "Código Ação",
+    "Nome Ação",
+] if c in cols]
+
+filter_cols = st.multiselect(
+    "Escolha colunas para filtrar (opcional)",
+    options=cols,
+    default=default_filter_cols[:4]
+)
+
+filtros = {}
+for c in filter_cols:
+    # pega top valores para não explodir a UI; se for muita coisa, o usuário digita busca
+    uniques = df[c].astype(str).fillna("").unique().tolist()
+    uniques = [u for u in uniques if u != ""]
+    # se for gigante, limita e avisa
+    if len(uniques) > 2000:
+        st.warning(f"Coluna '{c}' tem muitos valores ({len(uniques)}). Use busca no DataFrame ou selecione outra coluna.")
+        continue
+
+    selecionados = st.multiselect(f"Filtro: {c}", options=sorted(uniques)[:2000])
+    if selecionados:
+        filtros[c] = selecionados
+
+df_f = filtrar_df(df, filtros)
+
+st.write(f"Linhas após filtros: **{len(df_f):,}**".replace(",", "."))
+
+# ==========================
+# GRÁFICOS
+# ==========================
+st.subheader("📊 Gráficos")
+
+col_val = col_valor_existente(df_f)
+
+# escolha de agrupamento
+group_col = st.selectbox(
+    "Agrupar por (para o gráfico)",
+    options=[c for c in [
+        "Código Ação", "Nome Ação",
+        "Código Unidade Orçamentária  ", "Nome Unidade Orçamentária  ",
+        "Nome Órgão Superior", "Nome Órgão Subordinado",
+        "Nome Função", "Nome Subfunção",
+        "Nome Grupo de Despesa", "Nome Elemento de Despesa"
+    ] if c in df_f.columns] or list(df_f.columns)[:1]
+)
+
+if col_val and group_col in df_f.columns:
+    # tenta converter valores com vírgula/ponto
+    s = df_f[col_val].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    df_f["_valor_num"] = pd.to_numeric(s, errors="coerce").fillna(0)
+
+    top_n = st.slider("Top N no gráfico", 5, 50, 15)
+    agg = (
+        df_f.groupby(group_col, dropna=False)["_valor_num"]
+        .sum()
+        .reset_index()
+        .sort_values("_valor_num", ascending=False)
+        .head(top_n)
+    )
+    st.bar_chart(agg.set_index(group_col)["_valor_num"])
+    st.dataframe(agg, use_container_width=True, hide_index=True)
 else:
-    st.success(f"Registros após filtro: **{len(df):,}**".replace(",", "."))
+    st.info("Não encontrei uma coluna de valor padrão para somar. Você ainda pode explorar a tabela abaixo.")
 
 # ==========================
-# EXIBIÇÃO + DOWNLOADS
+# TABELA + DOWNLOAD
 # ==========================
-st.subheader("📊 Dados filtrados")
-st.dataframe(df, use_container_width=True)
+st.subheader("📋 Tabela")
+st.dataframe(df_f, use_container_width=True)
 
 st.subheader("⬇️ Exportar")
 st.download_button(
-    "Baixar CSV filtrado",
-    data=df.to_csv(index=False).encode("utf-8"),
-    file_name="orcamento_despesa_2026_uo_52111_52911.csv",
+    "Baixar CSV (filtrado)",
+    data=df_f.to_csv(index=False).encode("utf-8"),
+    file_name=f"orcamento_despesa_{int(ano)}_filtrado.csv",
     mime="text/csv",
 )
-st.download_button(
-    "Baixar Excel filtrado",
-    data=to_excel_bytes(df),
-    file_name="orcamento_despesa_2026_uo_52111_52911.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
-
-# ==========================
-# DICIONÁRIO DE DADOS (resumo)
-# ==========================
-with st.expander("📘 Dicionário de dados (resumo)"):
-    st.markdown(
-        """
-**Colunas principais (conforme informado):**
-- Exercício
-- Código/Nome Órgão Superior e Subordinado
-- **Código/Nome Unidade Orçamentária**
-- Código/Nome Função e Subfunção
-- Código/Nome Programa Orçamentário
-- Código/Nome Ação
-- Categoria Econômica
-- Grupo de Despesa (GND)
-- Elemento de Despesa
-- Orçamento Inicial (R$)
-- Orçamento Atualizado (R$)
-- Orçamento Empenhado (R$)
-- Orçamento Realizado (R$)
-- % Realizado do orçamento (Realizado/Atualizado * 100)
-        """
-    )
 
 # ==========================
 # RODAPÉ (FONTE)
 # ==========================
 st.markdown("---")
-st.caption(f"Fonte dos dados: {FONTE_URL}")
+st.caption(f"Fonte dos dados: {fonte_url}")

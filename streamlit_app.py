@@ -137,6 +137,16 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="dados")
     return out.getvalue()
+def fmt_mi_bi(v: float) -> str:
+    v = float(v or 0)
+    abs_v = abs(v)
+    if abs_v >= 1_000_000_000:
+        return f"R$ {v/1_000_000_000:.2f} bi".replace(".", ",")
+    if abs_v >= 1_000_000:
+        return f"R$ {v/1_000_000:.2f} mi".replace(".", ",")
+    if abs_v >= 1_000:
+        return f"R$ {v/1_000:.2f} mil".replace(".", ",")
+    return fmt_brl(v)
 
 # ==========================
 # FORMATAÇÃO (tabelas)
@@ -388,10 +398,11 @@ total_re = float(dfm["_realizado"].sum())
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("LOA (R$)", f"{total_at:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-k2.metric("Orçamento Empenhado (R$)",  f"{total_em:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-k3.metric("Orçamento Realizado (R$)",  f"{total_re:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%")
+k1.metric("LOA (R$)", fmt_mi_bi(total_at))
+k2.metric("Empenhado (R$)", fmt_mi_bi(total_em))
+k3.metric("Realizado (R$)", fmt_mi_bi(total_re))
+k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%".replace(".", ","))
+
 
 # ==========================
 # CONTROLES DE VISUALIZAÇÃO

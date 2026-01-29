@@ -341,12 +341,20 @@ metric_keys = [metric_map[m] for m in selected_metrics]
 # GRÁFICO ALTair (profissional)
 # ==========================
 def chart_budget_and_pct(agg: pd.DataFrame, dim_label: str, y_domain_max: float, metric_keys: list[str], show_pct: bool):
+    legend_names = {
+        "atualizado": "LOA",
+        "empenhado": "Empenhado",
+        "realizado": "Realizado",
+    }
+
     bars_long = agg.melt(
+        
         id_vars=["dim"],
         value_vars=metric_keys,
         var_name="métrica",
         value_name="valor",
     )
+    bars_long["métrica"] = bars_long["métrica"].map(legend_names).fillna(bars_long["métrica"])
 
     base = alt.Chart(bars_long).encode(
         x=alt.X("dim:N", sort="-y", title=dim_label),

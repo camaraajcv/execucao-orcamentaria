@@ -4,38 +4,18 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 import time
 import io
-import streamlit as st
-import requests
 
-st.write("VERSAO: TESTE dataEmissao + fase=1")
-
-BASE = "https://api.portaldatransparencia.gov.br/api-de-dados/despesas/documentos"
-headers = {"chave-api-dados": st.secrets["PORTAL_TRANSPARENCIA_TOKEN"]}
-
-params = {"dataEmissao": "2026-01-01", "fase": 1, "pagina": 1, "tamanhoPagina": 1}
-r = requests.get(BASE, headers=headers, params=params, timeout=30)
-
-st.write("URL FINAL:", r.url)
-st.write("STATUS:", r.status_code)
-st.write("TEXTO:", (r.text or "")[:500])
-st.stop()
-
-# =========================
-# CONFIG
-# =========================
 st.set_page_config(page_title="Empenhos — UG 120052", layout="wide")
 
 BASE_URL = "https://api.portaldatransparencia.gov.br/api-de-dados"
 ENDPOINT = "despesas/documentos"
 
-DEFAULT_UG = "120052"
-FASE_EMPENHO = 1  # 1=Empenho (obrigatório no endpoint)
+UG_PADRAO = "120052"
+GESTAO_PADRAO = "0001"
+FASE_EMPENHO = 1
 
-# =========================
-# SECRETS
-# =========================
 if "PORTAL_TRANSPARENCIA_TOKEN" not in st.secrets:
-    st.error("❌ Configure PORTAL_TRANSPARENCIA_TOKEN em Settings → Secrets no Streamlit Cloud.")
+    st.error("Configure PORTAL_TRANSPARENCIA_TOKEN em Settings → Secrets no Streamlit Cloud.")
     st.stop()
 
 TOKEN = str(st.secrets["PORTAL_TRANSPARENCIA_TOKEN"]).strip()
@@ -48,9 +28,6 @@ HEADERS = {
     "Referer": "https://portaldatransparencia.gov.br/",
 }
 
-# =========================
-# HELPERS
-# =========================
 def to_excel_bytes(dfs: dict) -> bytes:
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
@@ -58,25 +35,22 @@ def to_excel_bytes(dfs: dict) -> bytes:
             df.to_excel(writer, index=False, sheet_name=name[:31])
     return bio.getvalue()
 
-def _request(url, params, timeout=30):
-    return requests.get(url, headers=HEADERS, params=params, timeout=timeout)
-
-def fetch_day(url: str, day_iso: str, page_size=500, max_pages=50, sleep_s=0.02):
-    """
-    Busca todas as páginas de UM DIA para fase=1 (Empenho).
-    Parâmetros obrigatórios: dataEmissao, fase, pagina.
-    """
+def fetch_day(url: str, unidade_gestora: str, gestao: str, day: date,
+              page_size=500, max_pages=50, sleep_s=0.02):
+    """Busca todas as páginas de um dia (dataEmissao) para fase=1 (Empenho)."""
+    day_br = day.strftime("%d/%m/%Y")
     all_items = []
+
     for page in range(1, max_pages + 1):
         params = {
-            "dataEmissao": day_iso,     # obrigatório
-            "fase": FASE_EMPENHO,       # obrigatório (1)
-            "pagina": page,             # obrigatório
-            "tamanhoPagina": page_size  # não obrigatório, mas útil
+            "unidadeGestora": unidade_gestora,
+            "gestao": gestao,
+            "dataEmissao": day_br,
+            "fase": FASE_EMPENHO,
+            "pagina": page,
+            "tamanhoPagina": page_size,
         }
-
-        r = _request(url, params)
-
+        r = requests.get(url, headers=HEADERS, params=params, timeout=30)
         if r.status_code != 200:
             raise RuntimeError(
                 f"HTTP {r.status_code}\nURL:\n{r.url}\n\nResposta:\n{(r.text or '')[:1500]}"
@@ -90,75 +64,53 @@ def fetch_day(url: str, day_iso: str, page_size=500, max_pages=50, sleep_s=0.02)
         if len(data) < page_size:
             break
 
-        if sleep_s:
-            time.sleep(sleep_s)
+        time.sleep(sleep_s)
 
     return all_items
 
 def normalize(items: list) -> pd.DataFrame:
     if not items:
         return pd.DataFrame()
-
     df = pd.json_normalize(items)
-
-    # valor
     if "valor" in df.columns:
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-
-    # data (pode vir como string)
     if "data" in df.columns:
         df["data"] = pd.to_datetime(df["data"], errors="coerce")
-
     return df
-
-def filter_ug(df: pd.DataFrame, ug: str) -> pd.DataFrame:
-    if df.empty:
-        return df
-    if "codigoUg" in df.columns:
-        return df[df["codigoUg"].astype(str) == str(ug)]
-    return df  # se não existir coluna, não filtra
 
 def agg_top(df: pd.DataFrame, group_col: str, top_n=15):
     if df.empty or "valor" not in df.columns or group_col not in df.columns:
         return pd.DataFrame()
-    out = (
+    return (
         df.groupby(group_col, dropna=False)["valor"]
         .sum()
         .reset_index()
         .sort_values("valor", ascending=False)
         .head(top_n)
     )
-    return out
 
-# =========================
-# UI
-# =========================
-st.title("📌 Relatório de Empenhos — Portal da Transparência")
-st.caption("Endpoint: /api-de-dados/despesas/documentos | fase=1 (Empenho) | dataEmissao obrigatório")
+st.title("📌 Empenhos (fase=1) — Despesas/Documentos")
+st.caption("Parâmetros obrigatórios: unidadeGestora, gestao, dataEmissao (DD/MM/AAAA), fase, pagina")
 
 with st.sidebar:
-    st.header("Parâmetros")
-    ug = st.text_input("UG executora (filtro local)", value=DEFAULT_UG)
+    st.header("Consulta")
+    unidade_gestora = st.text_input("Unidade Gestora", value=UG_PADRAO)
+    gestao = st.text_input("Gestão", value=GESTAO_PADRAO)
 
     ano = st.number_input("Ano", min_value=2011, max_value=2100, value=date.today().year, step=1)
-
-    start_default = date(int(ano), 1, 1)
-    end_default = min(date.today(), date(int(ano), 12, 31))
-
-    d_ini = st.date_input("Data inicial", value=start_default)
-    d_fim = st.date_input("Data final", value=end_default)
+    d_ini = st.date_input("Data inicial", value=date(int(ano), 1, 1))
+    d_fim = st.date_input("Data final", value=min(date.today(), date(int(ano), 12, 31)))
 
     st.divider()
-    st.header("Limites de consulta")
+    st.header("Limites")
     page_size = st.selectbox("tamanhoPagina", options=[100, 200, 500], index=2)
     max_pages_per_day = st.slider("máx. páginas por dia", 1, 200, 50)
 
     st.divider()
     st.header("Filtros (pós-coleta)")
-    acao = st.text_input("Ação (código SIAFI)", value="")
-    elemento = st.text_input("Elemento (código SIAFI)", value="")
-    favorecido = st.text_input("Favorecido (contém)", value="")
-
+    acao = st.text_input("Ação (SIAFI)", value="")
+    elemento = st.text_input("Elemento (SIAFI)", value="")
+    favorecido = st.text_input("Favorecido contém", value="")
     top_n = st.slider("Top N gráficos", 5, 50, 15)
 
     run = st.button("🔎 Buscar Empenhos", use_container_width=True)
@@ -168,12 +120,9 @@ if d_ini > d_fim:
     st.stop()
 
 if not run:
-    st.info("Configure o período e clique em **Buscar Empenhos**.")
+    st.info("Configure os filtros e clique em **Buscar Empenhos**.")
     st.stop()
 
-# =========================
-# FETCH
-# =========================
 url = f"{BASE_URL}/{ENDPOINT}"
 
 total_days = (d_fim - d_ini).days + 1
@@ -181,34 +130,27 @@ prog = st.progress(0, text="Iniciando...")
 
 all_items = []
 cur = d_ini
-day_i = 0
+i = 0
 
-with st.spinner("Consultando dia a dia (dataEmissao) + paginação..."):
+with st.spinner("Consultando dia a dia + paginação..."):
     while cur <= d_fim:
-        day_i += 1
-        prog.progress(min(day_i / total_days, 1.0), text=f"Dia {day_i}/{total_days} — {cur.isoformat()}")
-
-        try:
-            items_day = fetch_day(
-                url=url,
-                day_iso=cur.isoformat(),
-                page_size=int(page_size),
-                max_pages=int(max_pages_per_day),
-                sleep_s=0.02
-            )
-            all_items.extend(items_day)
-        except Exception as e:
-            st.exception(e)
-            st.stop()
-
+        i += 1
+        prog.progress(i / total_days, text=f"Dia {i}/{total_days} — {cur.strftime('%d/%m/%Y')}")
+        items_day = fetch_day(
+            url=url,
+            unidade_gestora=unidade_gestora.strip(),
+            gestao=gestao.strip(),
+            day=cur,
+            page_size=int(page_size),
+            max_pages=int(max_pages_per_day),
+            sleep_s=0.02,
+        )
+        all_items.extend(items_day)
         cur += timedelta(days=1)
 
 prog.progress(1.0, text=f"Concluído — registros brutos: {len(all_items)}")
 
 df = normalize(all_items)
-
-# filtro UG
-df = filter_ug(df, ug=str(ug).strip())
 
 # filtros pós-coleta
 if acao.strip() and "acao" in df.columns:
@@ -226,12 +168,10 @@ if favorecido.strip():
             mask = mask | df[c].fillna("").astype(str).str.lower().str.contains(needle, na=False)
         df = df[mask]
 
-# =========================
 # KPIs
-# =========================
 c1, c2, c3 = st.columns(3)
 with c1:
-    st.metric("Registros (UG filtrada)", f"{len(df):,}".replace(",", "."))
+    st.metric("Registros", f"{len(df):,}".replace(",", "."))
 with c2:
     total = float(df["valor"].sum()) if (not df.empty and "valor" in df.columns) else 0.0
     st.metric("Total Empenhado (R$)", f"{total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
@@ -240,9 +180,7 @@ with c3:
 
 st.divider()
 
-# =========================
-# CHARTS
-# =========================
+# Gráficos
 left, right = st.columns(2)
 
 with left:
@@ -272,15 +210,12 @@ with right:
 
 st.divider()
 
-# =========================
-# TABLE + EXPORT
-# =========================
 st.subheader("📋 Detalhamento")
 st.dataframe(df, use_container_width=True)
 
 st.subheader("⬇️ Exportar")
 csv_bytes = df.to_csv(index=False).encode("utf-8")
-st.download_button("Baixar CSV", data=csv_bytes, file_name="empenhos_documentos_ug120052.csv", mime="text/csv")
+st.download_button("Baixar CSV", data=csv_bytes, file_name="empenhos_ug120052.csv", mime="text/csv")
 
 xlsx = to_excel_bytes({
     "empenhos": df,
@@ -289,17 +224,22 @@ xlsx = to_excel_bytes({
 st.download_button(
     "Baixar Excel",
     data=xlsx,
-    file_name="empenhos_documentos_ug120052.xlsx",
+    file_name="empenhos_ug120052.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
 with st.expander("🛠 Diagnóstico"):
     st.write("URL base:", url)
-    st.write("Header:", HEADER_NAME)
-    st.write("Token length:", len(TOKEN))
-    st.write("fase usada:", FASE_EMPENHO)
-    st.write("Registros brutos:", len(all_items))
-    st.write("Colunas:", list(df.columns))
-    if all_items:
-        st.write("Exemplo item bruto:")
-        st.json(all_items[0])
+    st.write("Exemplo de URL (primeiro dia):")
+    ex = {
+        "unidadeGestora": unidade_gestora.strip(),
+        "gestao": gestao.strip(),
+        "dataEmissao": d_ini.strftime("%d/%m/%Y"),
+        "fase": 1,
+        "pagina": 1,
+        "tamanhoPagina": int(page_size),
+    }
+    r = requests.get(url, headers=HEADERS, params=ex, timeout=30)
+    st.write(r.url)
+    st.write("Status:", r.status_code)
+    st.code((r.text or "")[:800])

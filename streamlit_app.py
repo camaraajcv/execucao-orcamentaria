@@ -35,18 +35,38 @@ def listar_arquivos_zip(zip_bytes: bytes) -> list[str]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         return z.namelist()
 
-def extrair_csv_bytes(zip_bytes: bytes, csv_name: str) -> tuple[bytes, str]:
+def extrair_csv_bytes(zip_bytes: bytes, csv_name: str):
+    """
+    Retorna:
+    - bytes do CSV
+    - nome do arquivo
+    - data/hora de modificação do CSV (datetime)
+    """
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         names = z.namelist()
+
         if csv_name in names:
             chosen = csv_name
         else:
             csvs = [n for n in names if n.lower().endswith(".csv")]
             if not csvs:
-                raise RuntimeError(f"Não encontrei CSV no ZIP. Arquivos: {names[:30]}")
+                raise RuntimeError("Não encontrei CSV no ZIP.")
             chosen = csvs[0]
+
+        info = z.getinfo(chosen)
+        # info.date_time -> (YYYY, MM, DD, HH, MM, SS)
+        dt_mod = pd.Timestamp(
+            year=info.date_time[0],
+            month=info.date_time[1],
+            day=info.date_time[2],
+            hour=info.date_time[3],
+            minute=info.date_time[4],
+            second=info.date_time[5],
+        )
+
         with z.open(chosen) as f:
-            return f.read(), chosen
+            return f.read(), chosen, dt_mod
+
 
 def ler_csv(csv_bytes: bytes) -> pd.DataFrame:
     attempts = [
@@ -171,6 +191,9 @@ def pretty_agg_display(agg: pd.DataFrame) -> pd.DataFrame:
 # ==========================
 # STATE
 # ==========================
+if "csv_updated_at" not in st.session_state:
+    st.session_state.csv_updated_at = None
+
 if "df" not in st.session_state:
     st.session_state.df = None
 if "ano_carregado" not in st.session_state:
@@ -187,6 +210,19 @@ if "csv_name_used" not in st.session_state:
 # ==========================
 st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
 st.caption("Dashboard interativo (download de dados → filtros → gráficos comparáveis com escala fixa).")
+if st.session_state.csv_updated_at is not None:
+    dt = st.session_state.csv_updated_at.tz_localize("UTC").tz_convert("America/Sao_Paulo")
+    st.caption(
+        f"📅 Dados atualizados em: **{dt.strftime('%d/%m/%Y às %H:%M')}** (horário de Brasília)"
+    )
+st.markdown(
+    f"""
+    <div style="color:gray;font-size:0.9em">
+    📅 Dados atualizados em: <b>{dt.strftime('%d/%m/%Y às %H:%M')}</b> (horário de Brasília)
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # ==========================
 # SIDEBAR (carregamento + filtros)
@@ -235,10 +271,14 @@ if carregar:
         zip_files = listar_arquivos_zip(zip_bytes)
 
         with st.spinner("Extraindo CSV…"):
-            csv_bytes, chosen_name = extrair_csv_bytes(zip_bytes, csv_name_expected)
+            csv_bytes, chosen_name, csv_updated_at = extrair_csv_bytes(
+                zip_bytes, csv_name_expected
+)
+
 
         with st.spinner("Lendo CSV…"):
             df = ler_csv(csv_bytes)
+        st.session_state.csv_updated_at = csv_updated_at
 
         st.session_state.df = df
         st.session_state.ano_carregado = int(ano)

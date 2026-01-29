@@ -13,6 +13,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+st.markdown("""
+<style>
+.kpi-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin-top:6px; margin-bottom:10px;}
+.kpi {border-radius:14px; padding:14px 14px 12px; border:1px solid rgba(49,51,63,.12); background: rgba(255,255,255,.65); box-shadow: 0 8px 24px rgba(0,0,0,.06);}
+.kpi .label {font-size:0.85rem; color: rgba(49,51,63,.70); margin-bottom:6px;}
+.kpi .value {font-size:1.55rem; font-weight:700; line-height:1.1;}
+.kpi .sub {font-size:0.85rem; color: rgba(49,51,63,.65); margin-top:6px;}
+.kpi.loa {background: linear-gradient(135deg, rgba(59,130,246,.14), rgba(99,102,241,.10));}
+.kpi.emp {background: linear-gradient(135deg, rgba(245,158,11,.14), rgba(251,191,36,.10));}
+.kpi.real {background: linear-gradient(135deg, rgba(16,185,129,.14), rgba(52,211,153,.10));}
+.kpi.pct {background: linear-gradient(135deg, rgba(236,72,153,.14), rgba(244,114,182,.10));}
+@media (max-width: 1100px){ .kpi-grid{grid-template-columns:repeat(2, minmax(0,1fr));} }
+</style>
+""", unsafe_allow_html=True)
 
 BASE_PAGE = "https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa"
 DEFAULT_YEAR = 2026  # ajuste se quiser
@@ -397,11 +411,31 @@ total_em = float(dfm["_empenhado"].sum())
 total_re = float(dfm["_realizado"].sum())
 pct_geral = (total_re / total_at * 100) if total_at else 0.0
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("LOA (R$)", fmt_mi_bi(total_at))
-k2.metric("Empenhado (R$)", fmt_mi_bi(total_em))
-k3.metric("Realizado (R$)", fmt_mi_bi(total_re))
-k4.metric("% Realizado (geral)", f"{pct_geral:.2f}%".replace(".", ","))
+st.markdown(f"""
+<div class="kpi-grid">
+  <div class="kpi loa">
+    <div class="label">LOA (R$)</div>
+    <div class="value">{fmt_mi_bi(total_at)}</div>
+    <div class="sub">Após filtros aplicados</div>
+  </div>
+  <div class="kpi emp">
+    <div class="label">Empenhado (R$)</div>
+    <div class="value">{fmt_mi_bi(total_em)}</div>
+    <div class="sub">Após filtros aplicados</div>
+  </div>
+  <div class="kpi real">
+    <div class="label">Realizado (R$)</div>
+    <div class="value">{fmt_mi_bi(total_re)}</div>
+    <div class="sub">Após filtros aplicados</div>
+  </div>
+  <div class="kpi pct">
+    <div class="label">% Realizado (geral)</div>
+    <div class="value">{str(f"{pct_geral:.2f}%").replace(".", ",")}</div>
+    <div class="sub">Realizado ÷ LOA</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 
 
 # ==========================

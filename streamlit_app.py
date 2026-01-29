@@ -131,12 +131,7 @@ def fmt_brl(x):
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
 
-def pretty_agg_styler(agg: pd.DataFrame):
-    """
-    1) Renomeia colunas para rótulos amigáveis (inclui LOA)
-    2) Força colunas de valores para numérico
-    3) Formata como moeda BR
-    """
+def pretty_agg_display(agg: pd.DataFrame) -> pd.DataFrame:
     df_show = agg.copy()
 
     # rename robusto (case-insensitive)
@@ -161,22 +156,17 @@ def pretty_agg_styler(agg: pd.DataFrame):
         "Orçamento Realizado (R$)",
     ] if c in df_show.columns]
 
-    # ✅ garante numérico (evita aparecer 545914651.000000)
+    # garante numérico e transforma em string moeda
     for c in money_cols:
-        df_show[c] = pd.to_numeric(df_show[c], errors="coerce").fillna(0.0)
+        df_show[c] = pd.to_numeric(df_show[c], errors="coerce").fillna(0.0).map(fmt_brl)
 
     if "% Realizado (médio)" in df_show.columns:
-        df_show["% Realizado (médio)"] = pd.to_numeric(df_show["% Realizado (médio)"], errors="coerce")
+        df_show["% Realizado (médio)"] = pd.to_numeric(
+            df_show["% Realizado (médio)"], errors="coerce"
+        ).map(lambda x: "" if pd.isna(x) else f"{x:.2f}%")
 
-    # aplica formatação
-    styler = df_show.style
-    if money_cols:
-        styler = styler.format({c: fmt_brl for c in money_cols})
+    return df_show
 
-    if "% Realizado (médio)" in df_show.columns:
-        styler = styler.format({"% Realizado (médio)": "{:.2f}"})
-
-    return styler
 
 # ==========================
 # STATE

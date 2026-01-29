@@ -463,8 +463,17 @@ def build_agg(dim_col: str) -> pd.DataFrame:
 
     return agg
 
-def y_max_from_agg(agg: pd.DataFrame) -> float:
-    return float(max(agg["atualizado"].max(), agg["empenhado"].max(), agg["realizado"].max(), 1.0)) * 1.05
+def y_max_from_agg(agg: pd.DataFrame, metric_keys: list[str]) -> float:
+    cols = [c for c in metric_keys if c in agg.columns]
+    if not cols:
+        cols = ["realizado"] if "realizado" in agg.columns else list(agg.columns)
+
+    maxv = 1.0
+    for c in cols:
+        v = agg[c].max()
+        if pd.notna(v):
+            maxv = max(maxv, float(v))
+    return maxv * 1.05
 
 # ==========================
 # TABS
@@ -486,7 +495,7 @@ with tab1:
     dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)
 
     agg_any = build_agg(dim_choice)
-    y_max = y_max_from_agg(agg_any)
+    y_max = y_max_from_agg(agg_any,metric_keys)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
     st.dataframe(pretty_agg_display(agg_any), use_container_width=True)
@@ -497,7 +506,7 @@ with tab2:
         st.warning("Não encontrei a coluna de Código Ação no CSV.")
     else:
         agg_acao = build_agg(COL_ACAO_COD)
-        y_max = y_max_from_agg(agg_acao)
+        y_max = y_max_from_agg(agg_acao, metric_keys)
         st.altair_chart(chart_budget_and_pct(agg_acao, "Código Ação", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(pretty_agg_display(agg_acao), use_container_width=True)
 
@@ -507,7 +516,7 @@ with tab3:
         st.warning("Não encontrei a coluna de Grupo de Despesa no CSV.")
     else:
         agg_gnd = build_agg(COL_GND_NOME)
-        y_max = y_max_from_agg(agg_gnd)
+        y_max = y_max_from_agg(agg_gnd, metric_keys)
         st.altair_chart(chart_budget_and_pct(agg_gnd, "Grupo de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(pretty_agg_display(agg_gnd), use_container_width=True)
 
@@ -517,7 +526,7 @@ with tab4:
         st.warning("Não encontrei a coluna de Elemento de Despesa no CSV.")
     else:
         agg_elem = build_agg(COL_ELEM_NOME)
-        y_max = y_max_from_agg(agg_elem)
+        y_max = y_max_from_agg(agg_elem, metric_keys)
         st.altair_chart(chart_budget_and_pct(agg_elem, "Elemento de Despesa", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(pretty_agg_display(agg_elem), use_container_width=True)
 
@@ -527,7 +536,7 @@ with tab5:
         st.warning("Não encontrei a coluna de Função no CSV.")
     else:
         agg_func = build_agg(COL_FUNCAO_NOME)
-        y_max = y_max_from_agg(agg_func)
+        y_max = y_max_from_agg(agg_func, metric_keys)
         st.altair_chart(chart_budget_and_pct(agg_func, "Função", y_max, metric_keys, show_pct_line), use_container_width=True)
         st.dataframe(pretty_agg_display(agg_func), use_container_width=True)
 

@@ -246,6 +246,11 @@ if "csv_name_used" not in st.session_state:
 # ==========================
 st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
 st.caption("Dashboard interativo (FAÇA SEU FILTRO NO MENU LATERAL - CLICAR NAS SETINHAS NA LATERAL SUPERIOR ESQUERDA).")
+if st.session_state.ano_carregado:
+    st.caption(f"📦 Ano carregado: **{st.session_state.ano_carregado}**")
+if "csv_inside_zip" in st.session_state:
+    st.caption(f"🗂️ Arquivo lido: **{st.session_state.csv_inside_zip}**")
+
 if st.session_state.csv_updated_at is not None:
     csv_dt = st.session_state.csv_updated_at
 
@@ -307,18 +312,22 @@ if limpar:
 
 # carregar
 if carregar:
-    zip_bytes = baixar_zip_por_ano(int(ano))
+    if carregar:
+    # baixa (cacheado por ano)
+        zip_bytes = baixar_zip_por_ano(int(ano))
 
-    csv_name_expected = f"{int(ano)}_OrcamentoDespesa.csv"
-    csv_bytes, chosen_name, csv_updated_at = extrair_csv_bytes(zip_bytes, csv_name_expected)
+        csv_name_expected = f"{int(ano)}_OrcamentoDespesa.csv"
+        csv_bytes, chosen_name, csv_updated_at = extrair_csv_bytes(zip_bytes, csv_name_expected)
 
-    df = ler_csv(csv_bytes)
+        df = ler_csv(csv_bytes)
 
-    st.session_state.df = df
-    st.session_state.ano_carregado = int(ano)
-    st.session_state.csv_updated_at = csv_updated_at
+        st.session_state.df = df
+        st.session_state.ano_carregado = int(ano)
+        st.session_state.csv_updated_at = csv_updated_at
+        st.session_state.csv_inside_zip = chosen_name  # (opcional, ajuda debug)
 
-    st.rerun()
+        st.rerun()
+
     try:
         with st.spinner("Baixando ZIP do Portal…"):
             zip_bytes = baixar_zip(fonte_url)

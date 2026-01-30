@@ -576,6 +576,7 @@ cA, cB, cC = st.columns(3)
 cA.info(f"Linhas exibidas: **{len(tbl)}**")
 cB.info("Dica: use a busca para achar Ação/Órgão/Elemento rapidamente")
 cC.info("A tabela segue a ordenação do gráfico (maior Realizado primeiro)")
+tbl = pretty_agg_display(agg_acao).copy()
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Visão Geral",

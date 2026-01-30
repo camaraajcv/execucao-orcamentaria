@@ -35,7 +35,7 @@ DEFAULT_GND = "1"                # exemplo: GND 1
 # ==========================
 # FUNÇÕES (download + leitura)
 # ==========================
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
+
 from pathlib import Path
 import requests, hashlib
 

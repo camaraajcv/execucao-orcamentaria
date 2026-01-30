@@ -373,35 +373,20 @@ with st.sidebar:
         default=list(dict.fromkeys(suggest))[:5],
         key="filter_cols_any",
     )
-
+    
 filtros = {}
 for c in filter_cols:
-    uniques = df[c].dropna().astype(str).unique().tolist()
+    uniques = df[c].astype(str).fillna("").unique().tolist()
     uniques = [u for u in uniques if u != ""]
     if len(uniques) > 4000:
         st.sidebar.warning(f"'{c}' tem muitos valores ({len(uniques)}). Filtre outra coluna antes.")
         continue
-
-    # ---- Defaults especiais ----
-    default_vals = None
-
-    if c == "Código Unidade Orçamentária":
-        default_vals = [x for x in DEFAULT_UO if x in uniques]
-
-    elif c == "Código Grupo de Despesa":
-        default_vals = [x for x in DEFAULT_GND if x in uniques]
-
-    selecionados = st.sidebar.multiselect(
-        f"{c}",
-        options=sorted(uniques),
-        default=default_vals if default_vals else [],
-        key=f"ms_{c}",
-    )
-
+    selecionados = st.sidebar.multiselect(f"{c}", options=sorted(uniques), key=f"ms_{c}")
     if selecionados:
         filtros[c] = selecionados
 
 df_f = filtrar_df(df, filtros)
+
 # ==========================
 # VALIDA MÉTRICAS
 # ==========================
@@ -497,16 +482,7 @@ with st.sidebar:
         selected_metrics = ["Orçamento Realizado (R$)"]
 
 metric_keys = [metric_map[m] for m in selected_metrics]
-agg_acao = (
-    df_f
-    .groupby(COL_ACAO_COD, as_index=False)[METRICAS_VALOR]
-    .sum()
-)
-agg_gnd = (
-    df_f
-    .groupby(COL_GND_NOME, as_index=False)[METRICAS_VALOR]
-    .sum()
-)
+
 # ==========================
 # GRÁFICO Altair
 # ==========================

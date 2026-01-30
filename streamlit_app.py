@@ -382,7 +382,7 @@ for c in filter_cols:
     if len(uniques) > 4000:
         st.sidebar.warning(f"'{c}' tem muitos valores ({len(uniques)}). Filtre outra coluna antes.")
         continue
-    selecionados = st.sidebar.multiselect(f"{c}", options=sorted(uniques), key=f"ms_{c}")
+    selecionados = st.sidebar.multiselect(f"{c}", options=sorted(uniques), key=f"ms_{c}",placeholder="Selecione uma ou mais opções...")
     if selecionados:
         filtros[c] = selecionados
 

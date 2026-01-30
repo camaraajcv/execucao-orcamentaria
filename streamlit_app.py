@@ -497,7 +497,16 @@ with st.sidebar:
         selected_metrics = ["Orçamento Realizado (R$)"]
 
 metric_keys = [metric_map[m] for m in selected_metrics]
-
+agg_acao = (
+    df_f
+    .groupby(COL_ACAO_COD, as_index=False)[METRICAS_VALOR]
+    .sum()
+)
+agg_gnd = (
+    df_f
+    .groupby(COL_GND_NOME, as_index=False)[METRICAS_VALOR]
+    .sum()
+)
 # ==========================
 # GRÁFICO Altair
 # ==========================

@@ -248,8 +248,7 @@ st.title("📊 Painel Orçamento/Despesa — Portal da Transparência")
 st.caption("Dashboard interativo (FAÇA SEU FILTRO NO MENU LATERAL - CLICAR NAS SETINHAS NA LATERAL SUPERIOR ESQUERDA).")
 if st.session_state.ano_carregado:
     st.caption(f"📦 Ano carregado: **{st.session_state.ano_carregado}**")
-if "csv_inside_zip" in st.session_state:
-    st.caption(f"🗂️ Arquivo lido: **{st.session_state.csv_inside_zip}**")
+
 
 if st.session_state.csv_updated_at is not None:
     csv_dt = st.session_state.csv_updated_at

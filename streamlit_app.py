@@ -592,29 +592,7 @@ with tab1:
     y_max = y_max_from_agg(agg_any,metric_keys)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
-    tbl = pretty_agg_display(agg_acao).copy()
-
-st.markdown("### 📋 Tabela (agregada)")
-
-# Pesquisa rápida (filtra por texto em qualquer coluna)
-q = st.text_input("🔎 Buscar na tabela", value="", placeholder="Digite para filtrar (ex.: 21A0, Defesa, Material, ...)")
-if q.strip():
-    mask = tbl.astype(str).apply(lambda col: col.str.contains(q, case=False, na=False))
-    tbl = tbl[mask.any(axis=1)]
-
-st.dataframe(
-    tbl,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Dimensão": st.column_config.TextColumn("Dimensão", width="medium"),
-        "LOA (R$)": st.column_config.TextColumn("LOA (R$)", width="small"),
-        "Orçamento Empenhado (R$)": st.column_config.TextColumn("Empenhado (R$)", width="small"),
-        "Orçamento Realizado (R$)": st.column_config.TextColumn("Realizado (R$)", width="small"),
-        "% Realizado (médio)": st.column_config.TextColumn("% Realizado", width="small"),
-    },
-)
-
+    st.dataframe(pretty_agg_display(agg_any), use_container_width=True)
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")

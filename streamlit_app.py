@@ -372,6 +372,7 @@ with st.sidebar:
         options=all_cols,
         default=list(dict.fromkeys(suggest))[:5],
         key="filter_cols_any",
+        placeholder="Selecione sua opção"
     )
     
 filtros = {}

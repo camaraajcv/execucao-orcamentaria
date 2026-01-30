@@ -572,6 +572,11 @@ def y_max_from_agg(agg: pd.DataFrame, metric_keys: list[str]) -> float:
 # ==========================
 # TABS
 # ==========================
+cA, cB, cC = st.columns(3)
+cA.info(f"Linhas exibidas: **{len(tbl)}**")
+cB.info("Dica: use a busca para achar Ação/Órgão/Elemento rapidamente")
+cC.info("A tabela segue a ordenação do gráfico (maior Realizado primeiro)")
+
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Visão Geral",
     "Por Ação (código)",
@@ -592,7 +597,29 @@ with tab1:
     y_max = y_max_from_agg(agg_any,metric_keys)
 
     st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
-    st.dataframe(pretty_agg_display(agg_any), use_container_width=True)
+    tbl = pretty_agg_display(agg_acao).copy()
+
+    st.markdown("### 📋 Tabela (agregada)")
+
+    # Pesquisa rápida (filtra por texto em qualquer coluna)
+    q = st.text_input("🔎 Buscar na tabela", value="", placeholder="Digite para filtrar (ex.: 21A0, Defesa, Material, ...)")
+    if q.strip():
+        mask = tbl.astype(str).apply(lambda col: col.str.contains(q, case=False, na=False))
+        tbl = tbl[mask.any(axis=1)]
+
+    st.dataframe(
+        tbl,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Dimensão": st.column_config.TextColumn("Dimensão", width="medium"),
+            "LOA (R$)": st.column_config.TextColumn("LOA (R$)", width="small"),
+            "Orçamento Empenhado (R$)": st.column_config.TextColumn("Empenhado (R$)", width="small"),
+            "Orçamento Realizado (R$)": st.column_config.TextColumn("Realizado (R$)", width="small"),
+            "% Realizado (médio)": st.column_config.TextColumn("% Realizado", width="small"),
+        },
+    )
+
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")
@@ -659,6 +686,23 @@ with tab6:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+col1, col2 = st.columns(2)
+with col1:
+    st.download_button(
+        "⬇️ Baixar tabela agregada (CSV)",
+        data=tbl.to_csv(index=False).encode("utf-8"),
+        file_name=f"tabela_agregada_{st.session_state.ano_carregado}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+with col2:
+    st.download_button(
+        "⬇️ Baixar tabela agregada (Excel)",
+        data=to_excel_bytes(tbl),
+        file_name=f"tabela_agregada_{st.session_state.ano_carregado}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
 # ==========================
 # RODAPÉ

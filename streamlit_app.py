@@ -693,6 +693,6 @@ with tab6:
 # ==========================
 st.markdown("---")
 st.caption(
-    f"Fonte dos dados: {st.session_state.fonte_url} | CSV utilizado: {st.session_state.csv_name_used} "
+    f"Fonte dos dados:  "
     f"| Portal da Transparência — Download de dados (Orçamento/Despesa)"
 )

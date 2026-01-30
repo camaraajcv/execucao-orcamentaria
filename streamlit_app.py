@@ -586,28 +586,14 @@ with tab1:
     st.subheader("Visão Geral")
 
     dim_all = [c for c in df.columns if c not in [COL_ATUALIZADO, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
-    default_dim = COL_ACAO_COD if COL_ACAO_COD in dim_all else dim_all[0]
-
-    dim_choice = st.selectbox(
-        "Dimensão para análise rápida",
-        options=dim_all,
-        index=None,
-        placeholder="Selecione uma opção"
-    )
-
-    if dim_choice is None:
-        st.info(f"Selecione uma dimensão para gerar a análise (sugestão: **{default_dim}**).")
-        st.stop()
+    default_idx = dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0
+    dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)
 
     agg_any = build_agg(dim_choice)
-    y_max = y_max_from_agg(agg_any, metric_keys)
+    y_max = y_max_from_agg(agg_any,metric_keys)
 
-    st.altair_chart(
-        chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line),
-        use_container_width=True
-    )
+    st.altair_chart(chart_budget_and_pct(agg_any, dim_choice, y_max, metric_keys, show_pct_line), use_container_width=True)
     st.dataframe(pretty_agg_display(agg_any), use_container_width=True)
-
 
 with tab2:
     st.subheader("Por Ação Orçamentária (Código Ação)")

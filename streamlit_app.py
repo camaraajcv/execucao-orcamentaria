@@ -36,7 +36,8 @@ DEFAULT_GND = "1"                # exemplo: GND 1
 # FUNÇÕES (download + leitura)
 # ==========================
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
-def baixar_zip(url: str) -> bytes:
+def baixar_zip_por_ano(ano: int) -> bytes:
+    url = f"https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa/{ano}"
     headers = {
         "User-Agent": "Mozilla/5.0 (StreamlitCloud)",
         "Accept": "*/*",
@@ -45,6 +46,7 @@ def baixar_zip(url: str) -> bytes:
     r = requests.get(url, headers=headers, timeout=240)
     r.raise_for_status()
     return r.content
+
 
 def listar_arquivos_zip(zip_bytes: bytes) -> list[str]:
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
@@ -274,6 +276,9 @@ with st.sidebar:
         value=int(st.session_state.ano_carregado) if st.session_state.ano_carregado else DEFAULT_YEAR,
         step=1,
     )
+    if st.session_state.ano_carregado and int(ano) != int(st.session_state.ano_carregado):
+        st.warning(f"Você selecionou {int(ano)}, mas os dados carregados ainda são {int(st.session_state.ano_carregado)}. Clique em **⬇️ Carregar**.")
+
     fonte_url = f"{BASE_PAGE}/{int(ano)}"
     csv_name_expected = f"{int(ano)}_OrcamentoDespesa.csv"
 
@@ -302,6 +307,18 @@ if limpar:
 
 # carregar
 if carregar:
+    zip_bytes = baixar_zip_por_ano(int(ano))
+
+    csv_name_expected = f"{int(ano)}_OrcamentoDespesa.csv"
+    csv_bytes, chosen_name, csv_updated_at = extrair_csv_bytes(zip_bytes, csv_name_expected)
+
+    df = ler_csv(csv_bytes)
+
+    st.session_state.df = df
+    st.session_state.ano_carregado = int(ano)
+    st.session_state.csv_updated_at = csv_updated_at
+
+    st.rerun()
     try:
         with st.spinner("Baixando ZIP do Portal…"):
             zip_bytes = baixar_zip(fonte_url)

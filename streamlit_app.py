@@ -587,7 +587,7 @@ with tab1:
 
     dim_all = [c for c in df.columns if c not in [COL_ATUALIZADO, COL_EMPENHADO, COL_REALIZADO, COL_PCT]]
     default_idx = dim_all.index(COL_ACAO_COD) if COL_ACAO_COD in dim_all else 0
-    dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx)
+    dim_choice = st.selectbox("Dimensão para análise rápida", options=dim_all, index=default_idx, placeholder="Selecione uma opção")
 
     agg_any = build_agg(dim_choice)
     y_max = y_max_from_agg(agg_any,metric_keys)

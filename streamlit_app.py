@@ -35,33 +35,17 @@ DEFAULT_GND = "1"                # exemplo: GND 1
 # ==========================
 # FUNÇÕES (download + leitura)
 # ==========================
-
-from pathlib import Path
-import requests, hashlib
-
-CACHE_DIR = Path(".cache_downloads")
-CACHE_DIR.mkdir(exist_ok=True)
-
-def baixar_zip_para_arquivo(url: str) -> Path:
-    key = hashlib.sha256(url.encode()).hexdigest()[:16]
-    out = CACHE_DIR / f"{key}.zip"
-    if out.exists() and out.stat().st_size > 0:
-        return out
-
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
+def baixar_zip_por_ano(ano: int) -> bytes:
+    url = f"https://portaldatransparencia.gov.br/download-de-dados/orcamento-despesa/{ano}"
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (StreamlitCloud)",
         "Accept": "*/*",
         "Referer": "https://portaldatransparencia.gov.br/",
     }
-
-    with requests.get(url, headers=headers, stream=True, timeout=240) as r:
-        r.raise_for_status()
-        with open(out, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
-    return out
-
+    r = requests.get(url, headers=headers, timeout=240)
+    r.raise_for_status()
+    return r.content
 
 
 def listar_arquivos_zip(zip_bytes: bytes) -> list[str]:
